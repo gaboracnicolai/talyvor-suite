@@ -671,12 +671,19 @@ function requestBody(provider: string, model: string, turns: ChatMessage[], tool
     // `document` block with a `file` source and OpenAI's `file` part, each naming the tdoc_ id. Lens
     // replaces each with the document's text before the model sees it — the id means nothing to a
     // provider, so it always converts.
+    // B17.155 — each document fenced and named. Lens puts the bare text where the block was, and a short PDF's lines
+    // then read as words the user typed: asked about "the attached document", the model said it could see none.
+    const named = (d: ChatAttachment, block: unknown) => [
+      { type: 'text', text: `<document name=${JSON.stringify(d.name)}>` },
+      block,
+      { type: 'text', text: '</document>' },
+    ]
     if (provider === 'anthropic') {
       return {
         role,
         content: [
           ...images.map((d) => ({ type: 'image', source: { type: 'base64', media_type: d.media_type, data: d.data } })),
-          ...docs.map((d) => ({ type: 'document', source: { type: 'file', file_id: d.file_id } })),
+          ...docs.flatMap((d) => named(d, { type: 'document', source: { type: 'file', file_id: d.file_id } })),
           { type: 'text', text: content },
         ],
       }
@@ -686,7 +693,7 @@ function requestBody(provider: string, model: string, turns: ChatMessage[], tool
       content: [
         { type: 'text', text: content },
         ...images.map((d) => ({ type: 'image_url', image_url: { url: `data:${d.media_type};base64,${d.data}` } })),
-        ...docs.map((d) => ({ type: 'file', file: { file_id: d.file_id } })),
+        ...docs.flatMap((d) => named(d, { type: 'file', file: { file_id: d.file_id } })),
       ],
     }
   })

@@ -1204,7 +1204,9 @@ describe('attached documents (B10.3)', () => {
     const [message] = JSON.parse(String(init.body)).messages
     expect(message.content).toEqual([
       { type: 'text', text: 'summarise this' },
+      { type: 'text', text: '<document name="Q3 deck.pptx">' },
       { type: 'file', file: { file_id: 'tdoc_1' } },
+      { type: 'text', text: '</document>' },
     ])
     expect(String(init.body).length).toBeLessThan(1000)
 
@@ -1266,7 +1268,9 @@ describe('attached documents (B10.3)', () => {
     const [message] = JSON.parse(String(posted.mock.calls[0][0].init.body)).messages
     expect(message.content).toEqual([
       { type: 'text', text: 'summarise this' },
+      { type: 'text', text: '<document name="report.pdf">' },
       { type: 'file', file: { file_id: 'tdoc_1' } },
+      { type: 'text', text: '</document>' },
     ])
     expect(screen.queryByTestId('send-waiting')).toBeNull()
   })
@@ -1322,11 +1326,30 @@ describe('attached documents (B10.3)', () => {
     const [message] = JSON.parse(String(posted.mock.calls[0][0].init.body)).messages
     expect(message.content).toEqual([
       { type: 'text', text: 'summarise this' },
+      { type: 'text', text: '<document name="report.pdf">' },
       { type: 'file', file: { file_id: 'tdoc_1' } },
+      { type: 'text', text: '</document>' },
     ])
     await waitFor(() =>
       expect(screen.getByTestId('documents-status').textContent).toBe('Converted to text before the model read it.'),
     )
+  })
+
+  it('tells Claude which text is the attached document: named and fenced around the block Lens converts (B17.155)', async () => {
+    const { posted } = mockChat({ converts: true })
+    renderChat()
+    await chooseModel('Claude Opus 5')
+    fireEvent.change(document.getElementById('chat-attach') as HTMLInputElement, { target: { files: [pdf()] } })
+    await screen.findByText('report.pdf')
+    await ask('What is the code word in the attached document?')
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(1))
+    const [message] = JSON.parse(String(posted.mock.calls[0][0].init.body)).messages
+    expect(message.content).toEqual([
+      { type: 'text', text: '<document name="report.pdf">' },
+      { type: 'document', source: { type: 'file', file_id: 'tdoc_1' } },
+      { type: 'text', text: '</document>' },
+      { type: 'text', text: 'What is the code word in the attached document?' },
+    ])
   })
 
   it('refuses a format Lens cannot convert, and a document over the limit, in words', async () => {
@@ -1375,7 +1398,9 @@ describe('attached documents (B10.3)', () => {
     const [message] = JSON.parse(String(posted.mock.calls[0][0].init.body)).messages
     expect(message.content).toEqual([
       { type: 'text', text: 'Where does the release team meet? Quote the page.' },
+      { type: 'text', text: '<document name="Release checklist">' },
       { type: 'file', file: { file_id: 'tdoc_1' } },
+      { type: 'text', text: '</document>' },
     ])
     expect((await screen.findByTestId('sent-docs-page')).getAttribute('href')).toBe('/docs/spaces/sp1/pages/pg1')
     await waitFor(() => expect(loadConversations('user-a').list[0]?.messages[0].attachments?.[0].docs_page).toEqual({ space_id: 'sp1', page_id: 'pg1' }))
