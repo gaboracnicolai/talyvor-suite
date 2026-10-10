@@ -2043,7 +2043,8 @@ export function chatTotalAfterReload(seed: number): Scenario {
 /**
  * B28.362 — the real charge under an answer, not the estimate (talyvor-lens B28.102): a question asked afresh, and the
  * footer under its answer states what Lens charged — "0.00135 LXC charged · …" — which is the amount of the one spend
- * row Lens wrote for it.
+ * row Lens wrote for it. B17.202 — asked in a temporary chat, served nothing from the cache or the pool (as chat-meter,
+ * B17.130): a made-up word in brackets does not keep the pool from serving it.
  */
 export function chatChargedFooter(seed: number): Scenario {
   return {
@@ -2052,42 +2053,57 @@ export function chatChargedFooter(seed: number): Scenario {
     items: ['B28.102', 'B28.362'],
     title: 'the figure under an answer is what Lens charged for it: the amount of its spend row',
     run: async (ctx) => {
-      const { app, env } = ctx
+      const { app } = ctx
       await app.newChat()
-      const seen = new Set((await env.lens.ledger(app.user)).map((r) => r.id))
-      const t = await ask(ctx, `Name the largest ocean in one word. (${freshWord(seed * 10 + 7, 1 + Math.floor(Math.random() * 999_999))})`)
-      const noPrice = priced(t)
-      if (noPrice !== undefined) return { pass: false, detail: noPrice }
-      if (t.footer.kind !== 'priced') return { pass: false, detail: `the answer was not written by the model just now: [${t.footerText}]` }
-      if (t.footer.chargedULXC === undefined) {
-        return { pass: false, detail: `the footer is still the estimate [${t.footerText}]: Lens did not say what it charged (talyvor-lens B28.102)` }
+      const toggle = app.page.getByRole('button', { name: 'Temporary chat' })
+      await toggle.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+      const temporary = async (on: boolean) => {
+        if ((await toggle.getAttribute('aria-pressed')) !== String(on)) await toggle.click()
       }
-      // The spend row is written as the answer is charged; room for it to land.
-      let fresh: LedgerRow[] = []
-      for (let tries = 0; tries < 10 && fresh.length === 0; tries++) {
-        if (tries > 0) await app.page.waitForTimeout(1_000)
-        fresh = (await env.lens.ledger(app.user)).filter((r) => !seen.has(r.id) && r.type === 'spend')
+      await temporary(true)
+      try {
+        return await chargedFooter(ctx, seed)
+      } finally {
+        await temporary(false).catch(() => undefined)
       }
-      ctx.evidence.push({ note: `the footer [${t.footerText}]; the spend rows written for it`, ledger: fresh.map((r) => ({ type: r.type, amount_ulxc: r.amount_ulxc, created_at: r.created_at })) })
-      if (fresh.length !== 1) return { pass: false, detail: `the answer [${t.footerText}] wrote ${fresh.length} spend rows, not one` }
-      const row = -fresh[0].amount_ulxc
-      if (row !== t.footer.chargedULXC) {
-        return { pass: false, detail: `the footer says ${t.footer.chargedULXC} µLXC charged [${t.footerText}], the answer's spend row ${row} µLXC` }
-      }
-      const { page } = app
-      const viewport = page.viewportSize()
-      await mkdir(env.outDir, { recursive: true })
-      const wide = join(env.outDir, `chat-charged-1440px-user${app.user.index}.png`)
-      const narrow = join(env.outDir, `chat-charged-390px-user${app.user.index}.png`)
-      await page.setViewportSize({ width: 1440, height: 900 })
-      await page.screenshot({ path: wide })
-      await page.setViewportSize({ width: 390, height: 844 })
-      await page.screenshot({ path: narrow })
-      if (viewport !== null) await page.setViewportSize(viewport)
-      ctx.evidence.push({ note: `the footer at 1440px: ${wide}; at 390px: ${narrow}` })
-      return { pass: true, detail: `the footer says ${chargedFigure(row)}, and the answer's spend row is ${row} µLXC` }
     },
   }
+}
+
+async function chargedFooter(ctx: ScenarioCtx, seed: number): Promise<Verdict> {
+  const { app, env } = ctx
+  const seen = new Set((await env.lens.ledger(app.user)).map((r) => r.id))
+  const t = await ask(ctx, `Name the largest ocean in one word. (${freshWord(seed * 10 + 7, 1 + Math.floor(Math.random() * 999_999))})`, 'in a temporary chat')
+  const noPrice = priced(t)
+  if (noPrice !== undefined) return { pass: false, detail: noPrice }
+  if (t.footer.kind !== 'priced') return { pass: false, detail: `the answer, in a temporary chat, was not written by the model just now: [${t.footerText}]` }
+  if (t.footer.chargedULXC === undefined) {
+    return { pass: false, detail: `the footer is still the estimate [${t.footerText}]: Lens did not say what it charged (talyvor-lens B28.102)` }
+  }
+  // The spend row is written as the answer is charged; room for it to land.
+  let fresh: LedgerRow[] = []
+  for (let tries = 0; tries < 10 && fresh.length === 0; tries++) {
+    if (tries > 0) await app.page.waitForTimeout(1_000)
+    fresh = (await env.lens.ledger(app.user)).filter((r) => !seen.has(r.id) && r.type === 'spend')
+  }
+  ctx.evidence.push({ note: `the footer [${t.footerText}]; the spend rows written for it`, ledger: fresh.map((r) => ({ type: r.type, amount_ulxc: r.amount_ulxc, created_at: r.created_at })) })
+  if (fresh.length !== 1) return { pass: false, detail: `the answer [${t.footerText}] wrote ${fresh.length} spend rows, not one` }
+  const row = -fresh[0].amount_ulxc
+  if (row !== t.footer.chargedULXC) {
+    return { pass: false, detail: `the footer says ${t.footer.chargedULXC} µLXC charged [${t.footerText}], the answer's spend row ${row} µLXC` }
+  }
+  const { page } = app
+  const viewport = page.viewportSize()
+  await mkdir(env.outDir, { recursive: true })
+  const wide = join(env.outDir, `chat-charged-1440px-user${app.user.index}.png`)
+  const narrow = join(env.outDir, `chat-charged-390px-user${app.user.index}.png`)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.screenshot({ path: wide })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({ path: narrow })
+  if (viewport !== null) await page.setViewportSize(viewport)
+  ctx.evidence.push({ note: `the footer at 1440px: ${wide}; at 390px: ${narrow}` })
+  return { pass: true, detail: `the footer says ${chargedFigure(row)}, and the answer's spend row is ${row} µLXC` }
 }
 
 /** B28.106 — Spend by feature's `chat` row on /spend (its 7-day window), or undefined while it lists none; screenshots when named. */
