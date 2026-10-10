@@ -55,6 +55,7 @@ export const NO_SCENARIO: Readonly<Record<string, string>> = {
   'B28.448': "how Track's CI scans; nothing a person or an agent does reaches it",
   'B28.449': "how Docs' CI scans; nothing a person or an agent does reaches it",
   'B28.455': "how Track's CI audits its frontend packages; nothing a person or an agent does reaches it",
+  'B28.456': "how Docs' CI audits its frontend packages; nothing a person or an agent does reaches it",
   'B28.248': "Docs' /metrics; production serves Docs only to the BFF, on 127.0.0.1, so no request from outside reaches it",
   'B28.436': "Track's /metrics; production serves Track only to the BFF, on 127.0.0.1, so no request from outside reaches it",
   'B28.442': "Track's check of the BFF's signed assertion; production serves Track only to the BFF, on 127.0.0.1, so no forged one can be sent from outside",
