@@ -502,7 +502,7 @@ export class BillingPlanCard {
 }
 
 /** Fills Stripe's hosted checkout (checkout.stripe.com) with the test card and submits it. */
-async function payWithTestCard(page: Page, email: string): Promise<void> {
+export async function payWithTestCard(page: Page, email: string): Promise<void> {
   const card = page.locator('#cardNumber')
   const cardChoice = page.locator('[data-testid="card-accordion-item-button"]')
   // B34.8 — a one-off payment lists its methods as rows, and the row's button is a hidden overlay over "Card": the row

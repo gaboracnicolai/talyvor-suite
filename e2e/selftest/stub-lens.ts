@@ -600,7 +600,7 @@ const QUOTES = { simulated: true, market_data: 'European Central Bank euro forei
   rate_date: '2026-10-02', quotes: SIM_QUOTES }
 
 const bank = new Bank({ brk: BREAK, workspace: (id) => workspaces.get(id), runModel, json, read, miss,
-  moderatorKey: process.env.STUB_MODERATOR_KEY ?? '', adminKey: process.env.STUB_ADMIN_KEY ?? '', base: BASE,
+  moderatorKey: process.env.STUB_MODERATOR_KEY ?? '', adminKey: process.env.STUB_ADMIN_KEY ?? '', base: BASE, appURL: APP_URL,
   credit: (id, ulxc, type, description, metadata) => {
     const ws = workspaces.get(id)
     if (ws !== undefined) book(ws, ulxc, type, description, metadata)
@@ -1273,7 +1273,7 @@ createServer(async (req, res) => {
     // B30.118 — the Know Your Agent keys, revocation list and verify, which any platform calls with no credential.
     if (await bank.kyaPublic(req, res, p)) return
     // B30.130 — an invoice's pay page, read with no credential (stub-payees.ts).
-    if (bank.invoicePayPage(req, res, p)) return
+    if (await bank.invoicePayPage(req, res, p)) return
     // B32.81 — the market_* MCP tools on an agent's own key.
     if (await bank.agentMCP(req, res, bearer, p)) return
     if (await bank.agentPay(req, res, bearer, p)) return

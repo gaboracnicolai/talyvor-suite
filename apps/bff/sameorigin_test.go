@@ -238,6 +238,13 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/verification/company", body: `{"name":"a"}`},
 		{method: http.MethodPost, path: "/api/terms/x1/accept", body: `{"version":1}`},
 		{method: http.MethodPost, path: "/api/kya/verify", body: `{"credential":"a.b.c"}`},
+		// B30.97 — invoices and their pay page. The card button is public (no session) and still same-Origin: it is a write.
+		{method: http.MethodPost, path: "/api/money/accounts", body: `{"currency":"GBP","agent_id":"x1"}`},
+		{method: http.MethodPost, path: "/api/money/invoices", body: `{"account_id":"x1","customer_name":"a","lines":[{"description":"d","quantity":1,"unit_amount_minor":1}],"due_date":"2026-12-31"}`},
+		{method: http.MethodPost, path: "/api/money/invoices/x1/send", body: `{}`},
+		{method: http.MethodPost, path: "/api/money/invoices/x1/void", body: `{}`},
+		{method: http.MethodPost, path: "/api/money/pay/abcdefghijklmnopqrstuvwx/agent", body: `{"agent_id":"x1"}`},
+		{method: http.MethodPost, path: "/api/public/pay/abcdefghijklmnopqrstuvwx/card", body: `{}`},
 		{method: http.MethodPost, path: "/api/admin/platform-reports", body: `{"year":2026}`},
 		{method: http.MethodDelete, path: "/api/agents/x1/topup", body: `{}`},
 		{method: http.MethodPost, path: "/api/marketplace/listings/x1/reports", body: `{"reason":"other"}`},

@@ -164,6 +164,8 @@ export interface BankDeps {
   read: (req: IncomingMessage) => Promise<string>
   /** B25.4 — the moderator key the review queue takes, and where the stub serves Stripe's onboarding */
   moderatorKey: string
+  /** B30.97 — where the app runs: an invoice's pay link points there */
+  appURL: string
   /** B32.98 — the global admin key the platform-reporting export takes */
   adminKey: string
   base: string
@@ -478,7 +480,8 @@ export class Bank {
     this.tax = new TaxDesk(d.json, (req) => this.body(req), (name) => this.broken(name))
     this.verification = new VerificationDesk(d.json, (req) => this.body(req), (name) => this.broken(name))
     this.payees = new PayeeDesk(d.json, (req) => this.body(req), (name) => this.broken(name),
-      (ws) => (this.passkeys.get(ws) ?? []).map((k) => ({ credential_id: k.credential_id, public_key: this.passkeyKeys.get(k.credential_id) ?? '' })))
+      (ws) => (this.passkeys.get(ws) ?? []).map((k) => ({ credential_id: k.credential_id, public_key: this.passkeyKeys.get(k.credential_id) ?? '' })),
+      { read: d.read, base: d.base, appURL: d.appURL })
     this.terms = new TermsDesk(d.json, (req) => this.body(req), (name) => this.broken(name), B30_CAPABILITIES)
     this.kya = new KYADesk(d.json, (req) => this.body(req), (name) => this.broken(name), (ws, agent) => this.kyaFacts(ws, agent))
     this.trustDesk = new TrustDesk({ json: d.json, body: (req) => this.body(req), broken: (name) => this.broken(name),
@@ -682,8 +685,9 @@ export class Bank {
   }
 
   /** B30.118 — the Know Your Agent routes anyone may call: the published keys, the revocation list and verify (stub-kya.ts). */
-  /** B30.130 — the pay page behind an invoice's link, which anyone with the link reads (stub-payees.ts). */
-  invoicePayPage(req: IncomingMessage, res: ServerResponse, path: string): boolean {
+  /** B30.130 — the pay page behind an invoice's link, which anyone with the link reads; B30.97 — its card button and the stub's
+   * checkout page (stub-payees.ts). */
+  invoicePayPage(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
     return this.payees.payPage(req, res, path)
   }
 

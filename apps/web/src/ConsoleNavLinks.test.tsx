@@ -113,6 +113,8 @@ const SIDEBAR_DESTINATIONS = [
   '/settings',
   '/settings/verification',
   '/settings/terms',
+  // B30.97 — the first Money item: invoices and their pay links.
+  '/money/invoices',
   '/track',
   '/docs',
   '/privacy',
@@ -135,6 +137,7 @@ const FOLD_CONTROLS = [
   'Work <button NO-HREF>',
   'Developers <button NO-HREF>',
   'Billing <button NO-HREF>',
+  'Money <button NO-HREF>',
   'Settings <button NO-HREF>',
 ] as const
 

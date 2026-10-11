@@ -176,6 +176,8 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/settings/verification': 6,
   // B30.103 — every capability with terms, in one card.
   '/settings/terms': 1,
+  // B30.97 — the accounts, the new invoice form, and the invoices issued.
+  '/money/invoices': 3,
   '/features': 0,
   '/features/try/tare': 0,
   '/features/try/conversion': 0,

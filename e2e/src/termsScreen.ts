@@ -34,7 +34,7 @@ async function lensTerms(ctx: ScenarioCtx, note: string): Promise<Terms[] | stri
 }
 
 /** The page at 1440 and 390 — or, given `part`, only that part of it (Agent Wallets is many screens long). */
-async function screenshots(ctx: ScenarioCtx, page: Page, name: string, part?: Locator): Promise<string> {
+export async function screenshots(ctx: ScenarioCtx, page: Page, name: string, part?: Locator): Promise<string> {
   const { outDir } = ctx.env
   await mkdir(outDir, { recursive: true })
   const wide = join(outDir, `${name}-1440px-user${ctx.app.user.index}.png`)

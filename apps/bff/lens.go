@@ -472,6 +472,15 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/terms/{capability}/accept", a.requireTenant(a.handleTermsAccept))
 	a.mux.HandleFunc("/api/agents/{id}/credential", a.requireTenant(a.handleAgentCredential))
 	a.mux.HandleFunc("/api/kya/verify", a.requireTenant(a.handleKYAVerify))
+	// B30.97 — invoices from an agent's currency account and their public pay page (Lens B30.20). See money_invoices.go.
+	a.mux.HandleFunc("/api/money/accounts", a.requireTenant(a.handleMoneyAccounts))
+	a.mux.HandleFunc("/api/money/invoices", a.requireTenant(a.handleMoneyInvoices))
+	a.mux.HandleFunc("/api/money/invoices/{id}/send", a.requireTenant(a.handleMoneyInvoiceMove("send")))
+	a.mux.HandleFunc("/api/money/invoices/{id}/void", a.requireTenant(a.handleMoneyInvoiceMove("void")))
+	a.mux.HandleFunc("/api/money/pay/{token}/agent", a.requireTenant(a.handleInvoicePayByAgent))
+	// The pay page's two routes take NO session: the payer is whoever holds the link, and Lens is called with no credential.
+	a.mux.HandleFunc("/api/public/pay/{token}", a.publicPayPage)
+	a.mux.HandleFunc("/api/public/pay/{token}/card", a.publicPayByCard)
 	// B22.12 — escrow, pots, simulated investing and cash-out. See wallet_holdings.go.
 	a.mux.HandleFunc("/api/agents/{id}/escrows", a.requireTenant(a.handleAgentEscrow))
 	a.mux.HandleFunc("/api/wallets/escrows", a.requireTenant(a.handleEscrows))

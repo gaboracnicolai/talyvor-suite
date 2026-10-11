@@ -857,6 +857,38 @@ export const LENS_BODIES: LensBody[] = [
       'r.Post("/v1/kya/verify", func(w http.ResponseWriter, req *http.Request) {',
     subject: "lensKYAVerifyBody",
   },
+  // B30.97 — invoices from an agent's account (Lens B30.20) and the accounts they are paid into (Lens B30.13).
+  {
+    route: "POST /v1/money/accounts",
+    file: "apps/bff/money_invoices.go",
+    kind: "map-literal",
+    anchor: 'json.Marshal(map[string]string{"currency": in.Currency, "agent_id": in.AgentID})',
+    upstreamFile: "cmd/lens/money_accounts_handler.go",
+    upstreamAnchor:
+      'r.Post("/v1/money/accounts", func(w http.ResponseWriter, req *http.Request) {',
+    subject: "lensMoneyAccountOpenBody",
+  },
+  {
+    route: "POST /v1/money/invoices",
+    file: "apps/bff/money_invoices.go",
+    kind: "anon-struct",
+    fn: "func (a *app) handleMoneyInvoices(",
+    anchor: "var in struct {",
+    upstreamFile: "cmd/lens/money_invoices_handler.go",
+    upstreamAnchor:
+      'r.Post("/v1/money/invoices", func(w http.ResponseWriter, req *http.Request) {',
+    subject: "lensMoneyInvoiceCreateBody",
+  },
+  {
+    route: "POST /v1/pay/{token}/agent",
+    file: "apps/bff/money_invoices.go",
+    kind: "map-literal",
+    anchor: 'json.Marshal(map[string]string{"agent_id": in.AgentID, "funding": in.Funding})',
+    upstreamFile: "cmd/lens/money_invoices_handler.go",
+    upstreamAnchor:
+      'r.Post("/v1/pay/{token}/agent", func(w http.ResponseWriter, req *http.Request) {',
+    subject: "lensInvoicePayByAgentBody",
+  },
 ];
 
 /**
