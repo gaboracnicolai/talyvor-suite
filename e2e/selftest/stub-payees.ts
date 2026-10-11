@@ -18,6 +18,11 @@
 // Stripe's field ids; the 4242 card posts what is due into the issuer's account and sends the browser back to the pay link with
 // ?paid=card), and POST /v1/money/invoices/{id}/send and …/void. Its defect:
 //   invoice-card-unposted  — a card payment marks the invoice paid and credits the issuer's account nothing
+// B30.96 — and the Pay screen's other desks: a payment names the account it pays from (account_id); mandates (POST and GET
+// /v1/money/mandates, POST …/{id}/revoke, Lens B30.19: an outside business's grant answers its pull_key once); and bulk
+// payouts (POST /v1/money/payouts as text/csv or JSON rows, GET …, GET …/{id}, POST …/{id}/approve, Lens B30.21): every row
+// validated on upload — the payee saved and confirmed, the amount positive in a money currency, the company's account in
+// the currency holding enough after the valid rows before it — and paid, once, on one approval.
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createHash, createPublicKey, randomBytes, randomUUID, verify } from 'node:crypto'
@@ -38,6 +43,14 @@ interface StubInvoice { id: string; workspace_id: string; agent_id: string; acco
   pay_url: string; currency: string; customer_name: string; customer_email?: string; lines: Line[]; subtotal_minor: number; vat_minor: number; total_minor: number
   paid_minor: number; due_minor: number; due_date: string; remind_days_before: number; status: string; sent_at?: string; paid_at?: string; created_at: string
   payments: { entry_id: string; method: string; amount_minor: number; paid_at: string }[] }
+/** A mandate (economy.Mandate). */
+interface StubMandate { id: string; workspace_id: string; agent_id: string; account_id: string; currency: string; payee_workspace_id?: string; payee_business_id?: string
+  payee_name: string; payee_id?: string; max_per_pull_minor: number; max_per_month_minor: number; pulled_this_month_minor: number; expires_at: string; status: string
+  revoked_at?: string; created_at: string }
+/** One row of a payout batch and the batch (economy.PayoutRow, economy.PayoutBatch). */
+interface StubRow { line: number; payee_id: string; payee_name?: string; amount_minor: number; currency: string; reference: string; status: string; payment_id?: string; detail?: string }
+interface StubBatch { id: string; workspace_id: string; funding: string; idempotency_key: string; status: string; rows: StubRow[]; rows_total: number; rows_valid: number
+  rows_invalid: number; totals_minor: Record<string, number>; approved_by?: string; approved_at?: string; created_at: string; updated_at: string }
 /** A payment out (economy.OutsidePayment). */
 interface Payment { id: string; workspace_id: string; account_id: string; payee_id: string; payee_name: string; amount_minor: number; currency: string
   funding: string; reference: string; idempotency_key: string; status: string; created_at: string }
@@ -58,6 +71,9 @@ export class PayeeDesk {
   /** B30.130 — each agent account's payment reference, by account id; and every invoice issued, found by its pay token. */
   private readonly references = new Map<string, string>()
   private readonly invoices: StubInvoice[] = []
+  /** B30.96 — the mandates granted and the payout batches uploaded, by workspace. */
+  private readonly mandates = new Map<string, StubMandate[]>()
+  private readonly batches = new Map<string, StubBatch[]>()
 
   private readonly json: (res: ServerResponse, status: number, body: unknown) => void
   private readonly body: <T>(req: IncomingMessage) => Promise<T>
@@ -99,6 +115,8 @@ export class PayeeDesk {
     const list = this.payees.get(ws) ?? []
     if (path === '/v1/money/accounts' || path === '/v1/money/payments') return this.money(req, res, ws, path, list), true
     if (await this.invoiceRoute(req, res, ws, path)) return true
+    if (await this.mandateRoute(req, res, ws, path, list)) return true
+    if (await this.payoutRoute(req, res, ws, path, list)) return true
     if (path === '/v1/money/payees' && req.method === 'GET') return this.json(res, 200, { payees: list }), true
     if (path === '/v1/money/payees' && req.method === 'POST') {
       const b = await this.body<Record<string, string>>(req)
@@ -164,29 +182,161 @@ export class PayeeDesk {
     }
     const payments = this.payments.get(ws) ?? []
     if (req.method !== 'POST') return this.json(res, 200, { payments })
-    const b = await this.body<{ payee_id?: string; amount_minor?: number; currency?: string; funding?: string; reference?: string; idempotency_key?: string }>(req)
+    const b = await this.body<{ payee_id?: string; amount_minor?: number; currency?: string; funding?: string; reference?: string; idempotency_key?: string; account_id?: string }>(req)
+    const p = this.pay(ws, payees, b)
+    if ('error' in p) return this.json(res, p.status, { error: p.error })
+    return this.json(res, 201, p)
+  }
+
+  /** B30.17 — one payment out, as a payment or (B30.96) a payout row makes it: each refusal as Lens words it; only compliance-live-paid moves live money. */
+  private pay(ws: string, payees: Payee[], b: { payee_id?: string; amount_minor?: number; currency?: string; funding?: string; reference?: string; idempotency_key?: string; account_id?: string }): Payment | { status: number; error: string } {
+    const accounts = this.accounts.get(ws) ?? []
+    const payments = this.payments.get(ws) ?? []
     const currency = (b.currency ?? '').toUpperCase()
     const funding = b.funding === 'live' ? 'live' : 'test'
     const amount = b.amount_minor ?? 0
     if (!b.payee_id || !b.idempotency_key || amount <= 0 || !CURRENCIES.includes(currency)) {
-      return this.json(res, 400, { error: 'economy: invalid payment: a payment names its payee, a positive amount_minor in GBP, EUR or USD and an idempotency key' })
+      return { status: 400, error: 'economy: invalid payment: a payment names its payee, a positive amount_minor in GBP, EUR or USD and an idempotency key' }
     }
-    const account = accounts.find((a) => a.currency === currency)
-    if (account === undefined) return this.json(res, 404, { error: `economy: no such money account: no ${currency} account to pay from — open one at /v1/money/accounts` })
+    const again = payments.find((p) => p.idempotency_key === b.idempotency_key)
+    if (again !== undefined) return again
+    // B30.96 — account_id names the account; else the company's in the currency (Lens's payingAccount).
+    const account = accounts.find((a) => (b.account_id ? a.id === b.account_id : a.currency === currency && a.purpose === 'company'))
+    if (account === undefined || account.currency !== currency) return { status: 404, error: `economy: no such money account: no ${currency} account to pay from — open one at /v1/money/accounts` }
     const payee = payees.find((x) => x.id === b.payee_id)
-    if (payee === undefined) return this.json(res, 404, { error: 'economy: no such payee' })
+    if (payee === undefined) return { status: 404, error: 'economy: no such payee' }
+    if (payee.needs_confirmation) return { status: 409, error: `economy: the payee is not confirmed: ${payee.name}'s name was a ${payee.check.replace('_', ' ')} — confirm it with a passkey first` }
     const held = this.cases.find((c) => c.subject_id === payee.id && c.status === 'held')
-    if (held !== undefined) return this.json(res, 403, { error: `${HELD} (compliance case ${held.id})` })
+    if (held !== undefined) return { status: 403, error: `${HELD} (compliance case ${held.id})` }
     const holds = funding === 'live' ? account.live_minor : account.test_minor
     if (holds < amount && !(funding === 'live' && this.broken('compliance-live-paid'))) {
-      return this.json(res, 409, { error: `economy: insufficient funds: the account holds ${money(holds, currency)} of ${funding} money, and this payment is ${money(amount, currency)}` })
+      return { status: 409, error: `economy: insufficient funds: the account holds ${money(holds, currency)} of ${funding} money, and this payment is ${money(amount, currency)}` }
     }
     account[funding === 'live' ? 'live_minor' : 'test_minor'] -= amount
     account.balance_minor -= amount
     const p: Payment = { id: `mpay_${randomUUID()}`, workspace_id: ws, account_id: account.id, payee_id: payee.id, payee_name: payee.name, amount_minor: amount, currency,
       funding, reference: b.reference ?? '', idempotency_key: b.idempotency_key, status: 'completed', created_at: new Date().toISOString() }
-    this.payments.set(ws, [...payments, p])
-    return this.json(res, 201, p)
+    this.payments.set(ws, [p, ...payments])
+    return p
+  }
+
+  /** B30.96 — mandates on an agent's account (Lens B30.19): granted, listed, revoked. Pulls are not served here. */
+  private async mandateRoute(req: IncomingMessage, res: ServerResponse, ws: string, path: string, payees: Payee[]): Promise<boolean> {
+    const list = this.mandates.get(ws) ?? []
+    if (path === '/v1/money/mandates' && req.method === 'GET') {
+      return this.json(res, 200, { granted: list.map(({ workspace_id: _w, ...m }) => ({ workspace_id: ws, ...m })), received: [] }), true
+    }
+    if (path === '/v1/money/mandates' && req.method === 'POST') {
+      const g = await this.body<{ account_id?: string; payee_workspace_id?: string; payee_business_id?: string; payee_id?: string; payee_name?: string
+        max_per_pull_minor?: number; max_per_month_minor?: number; expires_at?: string }>(req)
+      const bad = (msg: string) => this.json(res, 400, { error: `economy: invalid mandate: ${msg}` })
+      const company = (g.payee_workspace_id ?? '').trim()
+      const business = (g.payee_business_id ?? '').trim()
+      if ((company === '') === (business === '')) return bad('name the payee: a Talyvor company by payee_workspace_id, or an outside business by payee_business_id'), true
+      if (business !== '' && (g.payee_id ?? '') === '') return bad("an outside business's pulls are paid out to a saved payee: give payee_id"), true
+      if (company === ws) return bad('an agent cannot grant its own company a mandate'), true
+      const account = (this.accounts.get(ws) ?? []).find((a) => a.id === g.account_id && a.purpose === 'agent')
+      if (account === undefined) return this.json(res, 404, { error: "economy: no such money account: a mandate is on an agent's account" }), true
+      const pull = g.max_per_pull_minor ?? 0
+      const month = g.max_per_month_minor ?? 0
+      if (pull <= 0 || month <= 0 || month < pull) return bad('the maximum per pull and per month are positive, and the month is at least the pull'), true
+      if (Number.isNaN(Date.parse(g.expires_at ?? '')) || Date.parse(g.expires_at ?? '') <= Date.now()) return bad('expires_at is a time still to come, RFC 3339'), true
+      const payee = business === '' ? undefined : payees.find((p) => p.id === g.payee_id)
+      if (business !== '' && payee === undefined) return this.json(res, 404, { error: 'economy: no such payee' }), true
+      const m: StubMandate = { id: `mdt_${randomUUID()}`, workspace_id: ws, agent_id: account.agent_id ?? '', account_id: account.id, currency: account.currency,
+        ...(company === '' ? { payee_business_id: business, payee_id: g.payee_id } : { payee_workspace_id: company }),
+        payee_name: (g.payee_name ?? '').trim() || payee?.name || company, max_per_pull_minor: pull, max_per_month_minor: month, pulled_this_month_minor: 0,
+        expires_at: new Date(g.expires_at ?? '').toISOString(), status: 'active', created_at: new Date().toISOString() }
+      this.mandates.set(ws, [m, ...list])
+      return this.json(res, 201, business === '' ? m : { ...m, pull_key: `tlvm_${randomBytes(16).toString('hex')}` }), true
+    }
+    const revoke = /^\/v1\/money\/mandates\/([^/]+)\/revoke$/.exec(path)
+    if (revoke === null || req.method !== 'POST') return false
+    const m = list.find((x) => x.id === revoke[1])
+    if (m === undefined) return this.json(res, 404, { error: 'economy: no such mandate' }), true
+    if (m.status !== 'active') return this.json(res, 409, { error: 'economy: the mandate is revoked' }), true
+    Object.assign(m, { status: 'revoked', revoked_at: new Date().toISOString(), revoked_by: 'owner' })
+    return this.json(res, 200, m), true
+  }
+
+  /** B30.96 — bulk payouts (Lens B30.21): a CSV or JSON rows validated row by row on upload, paid once on one approval. */
+  private async payoutRoute(req: IncomingMessage, res: ServerResponse, ws: string, path: string, payees: Payee[]): Promise<boolean> {
+    const list = this.batches.get(ws) ?? []
+    const shown = (b: StubBatch, rows: boolean) => ({ ...b, rows: rows ? b.rows : undefined })
+    if (path === '/v1/money/payouts' && req.method === 'GET') return this.json(res, 200, { payouts: list.map((b) => shown(b, false)) }), true
+    if (path === '/v1/money/payouts' && req.method === 'POST') {
+      let rows: StubRow[]
+      let key = req.headers['idempotency-key']?.toString() ?? ''
+      if ((req.headers['content-type'] ?? '').startsWith('text/csv')) {
+        const lines = (await this.read(req)).split(/\r?\n/).filter((l) => l.trim() !== '')
+        const head = (lines[0] ?? '').split(',').map((h) => h.trim().toLowerCase())
+        const col = (name: string) => head.indexOf(name)
+        if (lines.length < 2) return this.json(res, 400, { error: 'the CSV has a header row — payee_id,amount,currency,reference — and then a row per payment' }), true
+        for (const want of ['payee_id', 'amount', 'currency']) {
+          if (col(want) < 0 && !(want === 'payee_id' && col('payee') >= 0)) return this.json(res, 400, { error: `the CSV's header names payee_id, amount, currency and reference; "${want}" is missing` }), true
+        }
+        rows = lines.slice(1).map((l, i) => {
+          const f = l.split(',').map((x) => x.trim())
+          const at = (name: string) => (col(name) >= 0 ? (f[col(name)] ?? '') : '')
+          const amount = at('amount')
+          const m = /^(\d+)(?:\.(\d{1,2}))?$/.exec(amount)
+          return { line: i + 2, payee_id: at('payee_id') || at('payee'), amount_minor: m === null ? 0 : Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0')),
+            currency: at('currency').toUpperCase(), reference: at('reference'), status: 'valid',
+            ...(m === null ? { detail: `amount "${amount}" is not a positive decimal amount with up to 2 decimal places, such as 12.34` } : {}) }
+        })
+      } else {
+        const b = await this.body<{ rows?: Partial<StubRow>[]; idempotency_key?: string }>(req)
+        key = key || (b.idempotency_key ?? '')
+        rows = (b.rows ?? []).map((r, i) => ({ line: i + 1, payee_id: r.payee_id ?? '', amount_minor: r.amount_minor ?? 0, currency: (r.currency ?? '').toUpperCase(), reference: r.reference ?? '', status: 'valid' }))
+      }
+      if (key === '') return this.json(res, 400, { error: 'economy: invalid payout batch: a batch has an idempotency key' }), true
+      const again = list.find((b) => b.idempotency_key === key)
+      if (again !== undefined) return this.json(res, 201, shown(again, true)), true
+      if (rows.length === 0 || rows.length > 1000) return this.json(res, 400, { error: 'economy: invalid payout batch: 1 to 1,000 rows' }), true
+      const accounts = this.accounts.get(ws) ?? []
+      const held: Record<string, number> = {}
+      const totals: Record<string, number> = {}
+      for (const r of rows) {
+        const payee = payees.find((p) => p.id === r.payee_id)
+        const account = accounts.find((a) => a.currency === r.currency && a.purpose === 'company' && a.status === 'open')
+        held[r.currency] ??= account?.test_minor ?? 0
+        if (r.detail !== undefined) r.status = 'invalid'
+        else if (payee === undefined) Object.assign(r, { status: 'invalid', detail: 'no such payee' })
+        else if (payee.needs_confirmation) Object.assign(r, { status: 'invalid', detail: `the payee is not confirmed: ${payee.name}'s name was a ${payee.check.replace('_', ' ')}` })
+        else if (r.amount_minor <= 0 || !CURRENCIES.includes(r.currency)) Object.assign(r, { status: 'invalid', detail: 'a positive amount in GBP, EUR or USD' })
+        else if (account === undefined) Object.assign(r, { status: 'invalid', detail: `no ${r.currency} account to pay from — open one at /v1/money/accounts` })
+        else if (held[r.currency] < r.amount_minor) {
+          Object.assign(r, { status: 'invalid', detail: `the account holds ${money(held[r.currency], r.currency)} of test money after the rows before this one, and this row is ${money(r.amount_minor, r.currency)}` })
+        } else {
+          r.payee_name = payee.name
+          held[r.currency] -= r.amount_minor
+          totals[r.currency] = (totals[r.currency] ?? 0) + r.amount_minor
+        }
+      }
+      const now = new Date().toISOString()
+      const valid = rows.filter((r) => r.status === 'valid').length
+      const b: StubBatch = { id: `mpob_${randomUUID()}`, workspace_id: ws, funding: 'test', idempotency_key: key, status: 'awaiting_approval', rows, rows_total: rows.length,
+        rows_valid: valid, rows_invalid: rows.length - valid, totals_minor: totals, created_at: now, updated_at: now }
+      this.batches.set(ws, [b, ...list])
+      return this.json(res, 201, shown(b, true)), true
+    }
+    const one = /^\/v1\/money\/payouts\/([^/]+)(\/approve)?$/.exec(path)
+    if (one === null) return false
+    const b = list.find((x) => x.id === one[1])
+    if (b === undefined) return this.json(res, 404, { error: 'economy: no such payout batch' }), true
+    if (one[2] === undefined) return req.method === 'GET' ? (this.json(res, 200, shown(b, true)), true) : false
+    if (req.method !== 'POST') return false
+    if (b.status === 'awaiting_approval') {
+      const now = new Date().toISOString()
+      for (const r of b.rows) {
+        if (r.status !== 'valid') continue
+        const p = this.pay(ws, payees, { payee_id: r.payee_id, amount_minor: r.amount_minor, currency: r.currency, reference: r.reference, idempotency_key: `payout:${b.id}:${r.line}` })
+        if ('error' in p) Object.assign(r, { status: 'failed', detail: p.error })
+        else Object.assign(r, { status: p.status, payment_id: p.id })
+      }
+      Object.assign(b, { status: 'approved', approved_by: 'owner', approved_at: now, updated_at: now })
+    }
+    return this.json(res, 200, shown(b, true)), true
   }
 
   /** Why `a` does not confirm payee `id`: undefined when it is a passkey's signature over the payee's challenge. */

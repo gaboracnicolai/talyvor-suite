@@ -889,6 +889,50 @@ export const LENS_BODIES: LensBody[] = [
       'r.Post("/v1/pay/{token}/agent", func(w http.ResponseWriter, req *http.Request) {',
     subject: "lensInvoicePayByAgentBody",
   },
+  // B30.96 — the Pay screen: a saved payee and its confirmation (Lens B30.16), a payment out (B30.17), a mandate (B30.19).
+  {
+    route: "POST /v1/money/payees",
+    file: "apps/bff/money_pay.go",
+    kind: "anon-struct",
+    fn: "func (a *app) handleMoneyPayees(",
+    anchor: "var in struct {",
+    upstreamFile: "cmd/lens/money_payees_handler.go",
+    upstreamAnchor:
+      'r.Post("/v1/money/payees", func(w http.ResponseWriter, req *http.Request) {',
+    subject: "lensPayeeCreateBody",
+  },
+  {
+    route: "POST /v1/money/payees/{id}/confirm",
+    file: "apps/bff/money_pay.go",
+    kind: "map-literal",
+    anchor: 'json.Marshal(map[string]*passkeyAssertion{"assertion": in.Assertion})',
+    upstreamFile: "cmd/lens/money_payees_handler.go",
+    upstreamAnchor:
+      'r.Post("/v1/money/payees/{id}/confirm", func(w http.ResponseWriter, req *http.Request) {',
+    subject: "lensPayeeConfirmBody",
+  },
+  {
+    route: "POST /v1/money/payments",
+    file: "apps/bff/money_pay.go",
+    kind: "anon-struct",
+    fn: "func (a *app) handleMoneyPayments(",
+    anchor: "var in struct {",
+    upstreamFile: "cmd/lens/money_payments_handler.go",
+    upstreamAnchor:
+      'r.Post("/v1/money/payments", func(w http.ResponseWriter, req *http.Request) {',
+    subject: "lensMoneyPaymentBody",
+  },
+  {
+    route: "POST /v1/money/mandates",
+    file: "apps/bff/money_pay.go",
+    kind: "anon-struct",
+    fn: "func (a *app) handleMoneyMandates(",
+    anchor: "var in struct {",
+    upstreamFile: "cmd/lens/money_mandates_handler.go",
+    upstreamAnchor:
+      'r.Post("/v1/money/mandates", func(w http.ResponseWriter, req *http.Request) {',
+    subject: "lensMandateGrantBody",
+  },
 ];
 
 /**

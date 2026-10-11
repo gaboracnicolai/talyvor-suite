@@ -75,6 +75,7 @@ import { capabilityTerms } from './capabilityTerms.ts'
 import { verificationScreen } from './verificationScreen.ts'
 import { termsAndCredentialScreens } from './termsScreen.ts'
 import { invoicesScreen } from './invoiceScreen.ts'
+import { payScreen } from './payScreen.ts'
 import { operatorComplianceBoundary } from './operatorCompliance.ts'
 import { agentCredential } from './kya.ts'
 import { lineage } from './lineage.ts'
@@ -5211,6 +5212,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // invoice issued and sent from an agent's GBP account, paid on its pay page signed out with the test card, recorded paid by
   // Lens with the posting into the agent's account, and read Paid on the screen.
   if (i === 1) list.push(invoicesScreen())
+  // B30.96 — the Pay screen, once a run, in the browser on a workspace of its own: a payee saved, £20.00 paid from an agent's
+  // card-funded GBP account and posted, a weekly standing order and a mandate recorded, a payouts CSV validated row by row with
+  // the unknown payee's row invalid and nothing moved from the company's empty account.
+  if (i === 3) list.push(payScreen())
   // B30.104 — the operator's Compliance page, once a run: a tester, never an operator, asking the BFF for the reconciliation and
   // safeguarding figures is refused 403 for both, and the page says only operators can see it and shows none of them.
   if (i === 3) list.push(operatorComplianceBoundary())

@@ -6,7 +6,7 @@ import { Region, RegionScreen } from '../../components/Region'
 import { formatWhen } from './format'
 import { CAPABILITIES_KEY, Note, readFailure } from './WalletMoney'
 import { BOOK_KEY } from './AgentBank'
-import { type CurrencyAccount, type Invoice, type InvoiceRequest, agentBankApi, formatMinor, refusalText } from './agentBankApi'
+import { type CurrencyAccount, type Invoice, type InvoiceRequest, agentBankApi, formatMinor, minorOf, refusalText } from './agentBankApi'
 
 // Invoices.tsx — B30.97: invoices and their pay links (Lens B30.20). An agent's currency account issues an invoice —
 // lines with optional VAT, a due date, a reminder — and sends a public pay link that takes a card, a transfer quoting the
@@ -28,14 +28,6 @@ const STATUS: Record<Invoice['status'], { text: string; pill: PillStatus }> = {
 }
 
 const select = `h-8 rounded-control border border-rule bg-surface px-2 text-body text-ink transition-colors duration-200 hover:border-rule-strong ${focusRing}`
-
-/** "12.50" → 1250: a price typed in the currency's major units, to the minor unit; null when it is not a positive amount. */
-function minorOf(text: string): number | null {
-  const m = /^\s*(\d+)(?:\.(\d{1,2}))?\s*$/.exec(text)
-  if (m === null) return null
-  const minor = Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0'))
-  return Number.isSafeInteger(minor) && minor > 0 ? minor : null
-}
 
 /** Thirty days from today, as the date field wants it. */
 function inThirtyDays(): string {

@@ -52,6 +52,13 @@ const MIN_BODY_SITES = 9 // 11 measured
  * exemption that grows.
  */
 const unboundedBodies: Record<string, string> = {
+  // B30.96 — a payout batch is the CSV file as the person chose it, sent as text/csv under an Idempotency-Key.
+  'src/areas/lens/agentBankApi.ts csv':
+    'uploadPayouts(csv: string, key) — the payouts CSV read off the chosen file. handleMoneyPayouts reads NO field of ' +
+    'it: io.ReadAll then straight through to lens POST /v1/money/payouts as text/csv (money_pay.go). The consumer is ' +
+    'Lens\'s CSV parser (cmd/lens/money_payouts_handler.go parsePayoutCSV), which reads the named columns payee_id, ' +
+    'amount, currency and reference and reports a row it cannot read as invalid with the reason, so there is no BFF ' +
+    'field contract here to join to.',
   // ⚠ KEYED BY FILE + THE BODY EXPRESSION, NOT BY ROUTE OR BY LINE. Two of the three have no
   // literal route at the call site at all (the path and even the method are parameters), so a
   // route key would collide them onto one entry; a line number drifts on any edit above it.

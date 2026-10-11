@@ -307,7 +307,7 @@ func TestAgentSchedulesAndTopUpReachLens(t *testing.T) {
 	}
 	ws := strings.Split(strings.TrimPrefix(strings.Fields(f.got[0])[1], "/v1/workspaces/"), "/")[0]
 	want := []string{
-		"POST /v1/workspaces/" + ws + `/agents/agt_1/schedules {"to_agent_id":"agt_2","to_listing_id":"","amount_ulxc":1000000,"memo":"rent","every":"week","first_run_at":null}`,
+		"POST /v1/workspaces/" + ws + `/agents/agt_1/schedules {"to_agent_id":"agt_2","to_listing_id":"","to_payee_id":"","amount_ulxc":1000000,"amount_minor":0,"currency":"","memo":"rent","every":"week","first_run_at":null,"end_at":null}`,
 		"DELETE /v1/workspaces/" + ws + "/agents/schedules/sch_1 ",
 		"GET /v1/workspaces/" + ws + "/agents/agt_1/topup ",
 		"PUT /v1/workspaces/" + ws + `/agents/agt_1/topup {"below_ulxc":5000000,"to_ulxc":8000000}`,

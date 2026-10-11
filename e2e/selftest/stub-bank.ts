@@ -337,6 +337,8 @@ interface Pot { id: string; agent_id: string; name: string; kind: string; target
 interface Schedule {
   id: string; ws: string; from_agent_id: string; to_agent_id: string; amount_ulxc: number; memo: string; every: string; next_run_at: string; active: boolean
   created_at: string; runs: { tick_at: string; outcome: 'paid' | 'refused'; entry_id?: string; detail?: string; created_at: string }[]
+  /** B30.96 — a standing order to a saved outside payee (Lens B30.18): amount_minor of currency a tick until end_at. Its ticks are not run here. */
+  to_payee_id?: string; amount_minor?: number; currency?: string; end_at?: string
 }
 interface CashOut {
   id: string; workspace_id: string; agent_id: string; amount_ulxc: number; amount_uusd: number; test_funded_ulxc: number; destination: string
@@ -1267,6 +1269,7 @@ export class Bank {
       }
     }
     for (const sc of this.schedules) {
+      if (sc.to_payee_id !== undefined) continue
       while (sc.active && Date.parse(sc.next_run_at) <= now) {
         const from = this.agents.get(sc.from_agent_id)
         const to = this.agents.get(sc.to_agent_id)
@@ -1869,7 +1872,19 @@ export class Bank {
       return json(res, 201, { ...p, balance_ulxc: 0 }), true
     }
     if (action === '/schedules' && method === 'POST') {
-      const b = await this.body<{ to_agent_id?: string; amount_ulxc?: number; memo?: string; every?: string; first_run_at?: string }>(req)
+      const b = await this.body<{ to_agent_id?: string; to_payee_id?: string; amount_ulxc?: number; amount_minor?: number; currency?: string; memo?: string; every?: string
+        first_run_at?: string; end_at?: string }>(req)
+      if (b.to_payee_id) {
+        if (!((b.amount_minor ?? 0) > 0) || !b.currency || PERIOD_MS[b.every ?? ''] === undefined) {
+          return json(res, 400, { error: 'economy: a standing order needs a positive amount_minor in a currency and every hour, day, week or month' }), true
+        }
+        const sc: Schedule = { id: id('sch_'), ws: ws.id, from_agent_id: a.id, to_agent_id: '', to_payee_id: b.to_payee_id, amount_ulxc: 0, amount_minor: b.amount_minor ?? 0,
+          currency: b.currency.toUpperCase(), memo: b.memo ?? '', every: b.every ?? 'month', next_run_at: b.first_run_at ?? now, ...(b.end_at ? { end_at: b.end_at } : {}),
+          active: true, created_at: now, runs: [] }
+        this.schedules.push(sc)
+        const { ws: _w, runs: _r, ...out } = sc
+        return json(res, 201, out), true
+      }
       const to = this.wallet(b.to_agent_id ?? '')
       if (to === undefined) return json(res, 404, { error: 'economy: no such agent' }), true
       if (!((b.amount_ulxc ?? 0) > 0) || PERIOD_MS[b.every ?? ''] === undefined) return json(res, 400, { error: 'economy: a schedule needs an amount and every hour, day, week or month' }), true
