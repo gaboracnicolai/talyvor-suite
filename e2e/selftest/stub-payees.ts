@@ -9,6 +9,11 @@
 // a TESTSANCTION name is refused naming a blocked case, a TESTPENDING name is saved held on its own. Its defects:
 //   payee-confirm-unsigned — a payee is confirmed with no assertion
 //   compliance-live-paid   — a live payment on an uncleared capability is paid, and the account's live balance moves
+// B30.130 — and an agent's account under the company's (Lens B30.13), its details and payment reference (GET
+// /v1/money/accounts/{id}/details, Lens B30.14), the invoices it issues (POST and GET /v1/money/invoices, Lens B30.20), the pay
+// page anyone with the link reads (GET /v1/pay/{token}) and another agent paying it from its account in the currency (POST
+// /v1/pay/{token}/agent), which moves test money from the payer's account into the issuer's. Its defect:
+//   invoice-paid-unmoved   — an agent's payment marks the invoice paid without asking what the payer holds or moving money
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createHash, createPublicKey, randomBytes, randomUUID, verify } from 'node:crypto'
@@ -20,14 +25,23 @@ interface Assertion { credential_id?: string; client_data_json?: string; authent
 interface Case { id: string; workspace_id: string; kind: string; subject_kind: string; subject_id: string; name: string; outcome: string; status: string
   matches: unknown[]; provider: string; capability: string; opened_at: string }
 /** A currency account (economy.CurrencyAccount). */
-interface Account { id: string; workspace_id: string; currency: string; purpose: string; status: string; name: string; balance_minor: number
-  test_minor: number; live_minor: number; created_at: string }
+interface Account { id: string; workspace_id: string; agent_id?: string; parent_account_id?: string; currency: string; purpose: string; status: string
+  name: string; balance_minor: number; test_minor: number; live_minor: number; created_at: string }
+/** One line of an invoice and its VAT (economy.InvoiceLine). */
+interface Line { description: string; quantity: number; unit_amount_minor: number; vat_rate_bps: number; net_minor: number; vat_minor: number }
+/** An invoice as its issuer reads it (economy.Invoice). */
+interface StubInvoice { id: string; workspace_id: string; agent_id: string; account_id: string; issuer: string; number: string; reference: string; pay_token: string
+  pay_url: string; currency: string; customer_name: string; customer_email?: string; lines: Line[]; subtotal_minor: number; vat_minor: number; total_minor: number
+  paid_minor: number; due_minor: number; due_date: string; remind_days_before: number; status: string; sent_at?: string; paid_at?: string; created_at: string
+  payments: { entry_id: string; method: string; amount_minor: number; paid_at: string }[] }
 /** A payment out (economy.OutsidePayment). */
 interface Payment { id: string; workspace_id: string; account_id: string; payee_id: string; payee_name: string; amount_minor: number; currency: string
   funding: string; reference: string; idempotency_key: string; status: string; created_at: string }
 
 const CURRENCIES = ['GBP', 'EUR', 'USD']
 const HELD = 'screening: held — the name is close to one on a sanctions list, and waits for an operator to release it'
+const DETAILS_NOTICE = 'Preview — test money only. These details are made up and reach no bank: nothing paid to them moves real money.'
+const PAY_NOTICE = 'Preview — test money only. Nothing paid here moves real money.'
 /** Minor units as Lens prints them: "GBP 10.00". */
 const money = (minor: number, currency: string): string => `${currency} ${(minor / 100).toFixed(2)}`
 
@@ -37,6 +51,9 @@ export class PayeeDesk {
   private readonly accounts = new Map<string, Account[]>()
   private readonly payments = new Map<string, Payment[]>()
   private readonly cases: Case[] = []
+  /** B30.130 — each agent account's payment reference, by account id; and every invoice issued, found by its pay token. */
+  private readonly references = new Map<string, string>()
+  private readonly invoices: StubInvoice[] = []
 
   private readonly json: (res: ServerResponse, status: number, body: unknown) => void
   private readonly body: <T>(req: IncomingMessage) => Promise<T>
@@ -68,6 +85,7 @@ export class PayeeDesk {
   async route(req: IncomingMessage, res: ServerResponse, ws: string, path: string): Promise<boolean> {
     const list = this.payees.get(ws) ?? []
     if (path === '/v1/money/accounts' || path === '/v1/money/payments') return this.money(req, res, ws, path, list), true
+    if (await this.invoiceRoute(req, res, ws, path)) return true
     if (path === '/v1/money/payees' && req.method === 'GET') return this.json(res, 200, { payees: list }), true
     if (path === '/v1/money/payees' && req.method === 'POST') {
       const b = await this.body<Record<string, string>>(req)
@@ -112,13 +130,22 @@ export class PayeeDesk {
     const accounts = this.accounts.get(ws) ?? []
     if (path === '/v1/money/accounts') {
       if (req.method !== 'POST') return this.json(res, 200, { accounts })
-      const b = await this.body<{ currency?: string; funding?: string }>(req)
+      const b = await this.body<{ currency?: string; agent_id?: string; funding?: string }>(req)
       const currency = (b.currency ?? '').toUpperCase()
+      const agentID = b.agent_id ?? ''
       if (!CURRENCIES.includes(currency)) return this.json(res, 400, { error: `economy: invalid currency account: an account is in GBP, EUR or USD, not "${currency}"` })
       if (b.funding === 'live') return this.json(res, 403, { error: 'currency_accounts is class RED: it takes test money only until Talyvor records a clearance for it, and this would use real money' })
-      if (accounts.some((a) => a.currency === currency)) return this.json(res, 409, { error: `economy: an account is already open: the company's ${currency} account` })
-      const a: Account = { id: `macc_${randomUUID()}`, workspace_id: ws, currency, purpose: 'company', status: 'open', name: `${currency} account`,
-        balance_minor: 0, test_minor: 0, live_minor: 0, created_at: new Date().toISOString() }
+      if (accounts.some((a) => a.currency === currency && (a.agent_id ?? '') === agentID)) {
+        return this.json(res, 409, { error: `economy: an account is already open: ${agentID === '' ? "the company's" : "the agent's"} ${currency} account` })
+      }
+      // B30.130 — an agent's account is a sub-account of its company's in the currency, reached by a payment reference (Lens B30.14).
+      const company = accounts.find((a) => a.currency === currency && a.purpose === 'company')
+      if (agentID !== '' && company === undefined) {
+        return this.json(res, 409, { error: `economy: an agent's account is a sub-account of its company's: open the company's account in this currency first (${currency})` })
+      }
+      const a: Account = { id: `macc_${randomUUID()}`, workspace_id: ws, ...(agentID === '' ? {} : { agent_id: agentID, parent_account_id: company?.id }), currency,
+        purpose: agentID === '' ? 'company' : 'agent', status: 'open', name: `${currency} account`, balance_minor: 0, test_minor: 0, live_minor: 0, created_at: new Date().toISOString() }
+      if (agentID !== '') this.references.set(a.id, 'TLV' + randomBytes(6).toString('hex').toUpperCase())
       this.accounts.set(ws, [...accounts, a])
       return this.json(res, 201, a)
     }
@@ -164,5 +191,96 @@ export class PayeeDesk {
     const signed = Buffer.concat([ad, createHash('sha256').update(cdj).digest()])
     if (!verify('sha256', signed, key, Buffer.from(a.signature ?? '', 'base64url'))) return 'passkey: the passkey ceremony is not valid: the signature does not verify'
     return undefined
+  }
+  /** B30.14 — what a payer pays into `a`: its company's details, made up by the Test partner, and an agent account's payment reference. */
+  private details(ws: string, a: Account): { payment_reference?: string } & Record<string, unknown> {
+    const company = (this.accounts.get(ws) ?? []).find((x) => x.id === (a.parent_account_id ?? a.id)) ?? a
+    return { account_id: a.id, account_ref: `test:${company.id}`, holder: `${ws} Ltd`, currency: a.currency, sort_code: '040004', account_number: '12345678',
+      ...(a.purpose === 'agent' ? { payment_reference: this.references.get(a.id) } : {}), mode: 'TEST', notice: DETAILS_NOTICE }
+  }
+
+  /** An invoice as Lens answers it: payments only once there are any (omitempty). */
+  private invoice(i: StubInvoice): object {
+    return { ...i, payments: i.payments.length === 0 ? undefined : i.payments }
+  }
+
+  /** B30.130 — an account's details, the invoices and an agent's payment of one, on workspace `ws`'s key: true when `path` was one of them. */
+  private async invoiceRoute(req: IncomingMessage, res: ServerResponse, ws: string, path: string): Promise<boolean> {
+    const accounts = this.accounts.get(ws) ?? []
+    const details = /^\/v1\/money\/accounts\/([^/]+)\/details$/.exec(path)
+    if (details !== null && req.method === 'GET') {
+      const a = accounts.find((x) => x.id === details[1])
+      if (a === undefined) return this.json(res, 404, { error: 'economy: no such money account' }), true
+      return this.json(res, 200, this.details(ws, a)), true
+    }
+    if (path === '/v1/money/invoices' && req.method === 'GET') return this.json(res, 200, { invoices: this.invoices.filter((i) => i.workspace_id === ws).map((i) => this.invoice(i)) }), true
+    if (path === '/v1/money/invoices' && req.method === 'POST') {
+      const b = await this.body<{ account_id?: string; customer_name?: string; customer_email?: string; lines?: Partial<Line>[]; due_date?: string; send?: boolean }>(req)
+      const lines: Line[] = (b.lines ?? []).map((l) => {
+        const net = (l.quantity ?? 0) * (l.unit_amount_minor ?? 0)
+        return { description: l.description ?? '', quantity: l.quantity ?? 0, unit_amount_minor: l.unit_amount_minor ?? 0, vat_rate_bps: l.vat_rate_bps ?? 0, net_minor: net,
+          vat_minor: Math.floor((net * (l.vat_rate_bps ?? 0) + 5000) / 10000) }
+      })
+      if ((b.customer_name ?? '') === '' || lines.length === 0 || !/^\d{4}-\d{2}-\d{2}$/.test(b.due_date ?? '') || lines.some((l) => l.quantity <= 0 || l.unit_amount_minor <= 0)) {
+        return this.json(res, 400, { error: 'economy: invalid invoice: a customer, 1 to 100 lines above zero and a due date, YYYY-MM-DD' }), true
+      }
+      const account = accounts.find((a) => a.id === b.account_id && a.purpose === 'agent')
+      if (account === undefined) return this.json(res, 404, { error: `economy: no such money account: no agent account ${b.account_id ?? ''} to be paid into` }), true
+      const subtotal = lines.reduce((n, l) => n + l.net_minor, 0)
+      const vat = lines.reduce((n, l) => n + l.vat_minor, 0)
+      const now = new Date().toISOString()
+      const token = randomBytes(24).toString('hex')
+      const inv: StubInvoice = { id: `inv_${randomUUID()}`, workspace_id: ws, agent_id: account.agent_id ?? '', account_id: account.id, issuer: `${ws} Ltd`,
+        number: `INV-${String(this.invoices.filter((i) => i.workspace_id === ws).length + 1).padStart(6, '0')}`, reference: randomBytes(6).toString('hex'),
+        pay_token: token, pay_url: `http://127.0.0.1/pay/${token}`, currency: account.currency, customer_name: b.customer_name ?? '', customer_email: b.customer_email, lines,
+        subtotal_minor: subtotal, vat_minor: vat, total_minor: subtotal + vat, paid_minor: 0, due_minor: subtotal + vat, due_date: b.due_date ?? '', remind_days_before: 0,
+        status: b.send ? 'sent' : 'draft', ...(b.send ? { sent_at: now } : {}), created_at: now, payments: [] }
+      this.invoices.push(inv)
+      return this.json(res, 201, this.invoice(inv)), true
+    }
+    const pay = /^\/v1\/pay\/([^/]+)\/agent$/.exec(path)
+    if (pay === null || req.method !== 'POST') return false
+    const inv = this.invoices.find((i) => i.pay_token === pay[1] && i.status !== 'draft')
+    if (inv === undefined) return this.json(res, 404, { error: 'economy: no such invoice' }), true
+    const { agent_id: agentID = '' } = await this.body<{ agent_id?: string }>(req)
+    if (agentID === '') return this.json(res, 400, { error: 'agent_id names the agent that pays' }), true
+    const from = accounts.find((a) => a.purpose === 'agent' && a.agent_id === agentID && a.currency === inv.currency && a.status === 'open')
+    if (from === undefined) return this.json(res, 404, { error: `economy: no such money account: the agent has no open ${inv.currency} account to pay from` }), true
+    if (inv.status === 'paid' || inv.status === 'void') return this.json(res, 409, { error: `economy: the invoice's state does not allow this: it is ${inv.status}` }), true
+    // STUB_BREAK=invoice-paid-unmoved — the invoice is marked paid without asking what the payer holds, and no account moves.
+    if (!this.broken('invoice-paid-unmoved')) {
+      if (from.test_minor < inv.due_minor) {
+        return this.json(res, 409, { error: `economy: the account does not hold enough to pay this invoice: it holds ${money(from.test_minor, inv.currency)} of test money, ` +
+          `and ${money(inv.due_minor, inv.currency)} is due` }), true
+      }
+      const to = [...this.accounts.values()].flat().find((a) => a.id === inv.account_id)
+      from.test_minor -= inv.due_minor
+      from.balance_minor -= inv.due_minor
+      if (to !== undefined) {
+        to.test_minor += inv.due_minor
+        to.balance_minor += inv.due_minor
+      }
+    }
+    const now = new Date().toISOString()
+    const entry = { id: `me_${randomUUID()}`, workspace_id: ws, kind: 'invoice_payment', funding: 'test', amount_minor: inv.due_minor, currency: inv.currency, created_at: now }
+    inv.payments.push({ entry_id: entry.id, method: 'agent', amount_minor: inv.due_minor, paid_at: now })
+    Object.assign(inv, { paid_minor: inv.total_minor, due_minor: 0, status: 'paid', paid_at: now })
+    return this.json(res, 200, { invoice: this.invoice(inv), entry }), true
+  }
+
+  /** B30.20 — the pay page behind an invoice's link, read with no credential: the invoice without the issuer's ids, how to pay it. */
+  payPage(req: IncomingMessage, res: ServerResponse, path: string): boolean {
+    const m = /^\/v1\/pay\/([^/]+)$/.exec(path)
+    if (m === null || req.method !== 'GET') return false
+    const inv = this.invoices.find((i) => i.pay_token === m[1] && i.status !== 'draft')
+    if (inv === undefined) return this.json(res, 404, { error: 'economy: no such invoice' }), true
+    const { workspace_id: _w, agent_id: _a, account_id: _c, pay_token: _t, payments: _p, ...shown } = inv
+    const page: Record<string, unknown> = { notice: PAY_NOTICE, card: false, invoice: shown }
+    const account = (this.accounts.get(inv.workspace_id) ?? []).find((a) => a.id === inv.account_id)
+    if (account !== undefined && (inv.status === 'sent' || inv.status === 'overdue')) {
+      const d = this.details(inv.workspace_id, account)
+      page.transfer = { details: d, mode: 'TEST', reference: `${d.payment_reference ?? ''} ${inv.reference}` }
+    }
+    return this.json(res, 200, page), true
   }
 }
