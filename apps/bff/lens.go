@@ -481,6 +481,16 @@ func newApp(cfg config, auth *authenticator) *app {
 	// The pay page's two routes take NO session: the payer is whoever holds the link, and Lens is called with no credential.
 	a.mux.HandleFunc("/api/public/pay/{token}", a.publicPayPage)
 	a.mux.HandleFunc("/api/public/pay/{token}/card", a.publicPayByCard)
+	// B30.96 — the Pay screen: saved payees, payments out, mandates and bulk payouts (Lens B30.16, B30.17, B30.19, B30.21). See money_pay.go.
+	a.mux.HandleFunc("/api/money/payees", a.requireTenant(a.handleMoneyPayees))
+	a.mux.HandleFunc("/api/money/payees/{id}/challenge", a.requireTenant(a.handleMoneyPayeeChallenge))
+	a.mux.HandleFunc("/api/money/payees/{id}/confirm", a.requireTenant(a.handleMoneyPayeeConfirm))
+	a.mux.HandleFunc("/api/money/payments", a.requireTenant(a.handleMoneyPayments))
+	a.mux.HandleFunc("/api/money/mandates", a.requireTenant(a.handleMoneyMandates))
+	a.mux.HandleFunc("/api/money/mandates/{id}/revoke", a.requireTenant(a.handleMoneyMandateRevoke))
+	a.mux.HandleFunc("/api/money/payouts", a.requireTenant(a.handleMoneyPayouts))
+	a.mux.HandleFunc("/api/money/payouts/{id}", a.requireTenant(a.handleMoneyPayout))
+	a.mux.HandleFunc("/api/money/payouts/{id}/approve", a.requireTenant(a.handleMoneyPayoutApprove))
 	// B22.12 — escrow, pots, simulated investing and cash-out. See wallet_holdings.go.
 	a.mux.HandleFunc("/api/agents/{id}/escrows", a.requireTenant(a.handleAgentEscrow))
 	a.mux.HandleFunc("/api/wallets/escrows", a.requireTenant(a.handleEscrows))

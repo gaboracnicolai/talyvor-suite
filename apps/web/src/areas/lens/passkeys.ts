@@ -63,7 +63,15 @@ export async function registerThisDevice(name: string): Promise<void> {
 
 /** Signs one approval's challenge with a passkey of this workspace — Face ID asks here. */
 export async function signApproval(approvalID: string): Promise<PasskeyAssertion> {
-  const { challenge, allow_credentials } = await agentBankApi.approvalChallenge(approvalID)
+  return assertOver(await agentBankApi.approvalChallenge(approvalID))
+}
+
+/** B30.96 — signs a saved payee's challenge the same way: a close or no match is confirmed only so (Lens B30.16). */
+export async function signPayee(payeeID: string): Promise<PasskeyAssertion> {
+  return assertOver(await agentBankApi.payeeChallenge(payeeID))
+}
+
+async function assertOver({ challenge, allow_credentials }: { challenge: string; allow_credentials: string[] | null }): Promise<PasskeyAssertion> {
   const cred = (await navigator.credentials.get({
     publicKey: {
       challenge: fromB64u(challenge),

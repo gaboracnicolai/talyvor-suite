@@ -108,6 +108,11 @@ export interface AgentSchedule {
   from_agent_id: string
   to_agent_id: string
   to_listing_id?: string
+  /** B30.18 — a standing order: to a saved outside payee, amount_minor of currency a tick, until end_at. */
+  to_payee_id?: string
+  amount_minor?: number
+  currency?: string
+  end_at?: string
   /** to a listing: the most a tick pays, 0 for its price at the time */
   amount_ulxc: number
   memo?: string
@@ -120,9 +125,11 @@ export interface AgentSchedule {
 /** Lens economy.AgentScheduleRun: one tick, paid or refused (and why). */
 export interface AgentScheduleRun {
   tick_at: string
-  outcome: 'paid' | 'refused'
+  outcome: 'paid' | 'refused' | 'skipped'
   entry_id?: string
   use_id?: string
+  /** B30.18 — a standing order's tick: the payment out it made. */
+  payment_id?: string
   detail?: string
   created_at: string
 }
@@ -214,7 +221,8 @@ export interface AgentRules {
 
 /** Lens economy.Payee. `name` is empty when the payee no longer exists. */
 export interface ApprovalPayee {
-  kind: 'agent' | 'listing' | 'company' | 'merchant'
+  /** `outside`: a saved payee outside Talyvor (B30.17). */
+  kind: 'agent' | 'listing' | 'company' | 'merchant' | 'outside'
   id: string
   name: string
 }
@@ -547,8 +555,7 @@ export const agentBankApi = {
   approvals: () => getJSON<{ approvals: AgentApproval[] | null }>('/api/agents/approvals', { approvals: 'list' }),
   // B19.21 — scheduled payments and automatic top-ups.
   schedules: () => getJSON<{ schedules: AgentSchedule[] | null }>('/api/agents/schedules', { schedules: 'list' }),
-  schedule: (id: string, body: { to_agent_id: string; to_listing_id: string; amount_ulxc: number; memo: string; every: AgentSchedule['every'] }) =>
-    send<AgentSchedule>('POST', `/api/agents/${e(id)}/schedules`, body),
+  schedule: (id: string, body: ScheduleRequest) => send<AgentSchedule>('POST', `/api/agents/${e(id)}/schedules`, body),
   scheduleRuns: (sid: string) => getJSON<{ runs: AgentScheduleRun[] | null }>(`/api/agents/schedules/${e(sid)}/runs`, { runs: 'list' }),
   stopSchedule: (sid: string) => send<{ active: boolean }>('POST', `/api/agents/schedules/${e(sid)}/stop`),
   // B28.377 — prompts scheduled from Chat, each asked at its time on an agent's wallet.
@@ -665,6 +672,172 @@ export const agentBankApi = {
   sendInvoice: (id: string) => send<Invoice>('POST', `/api/money/invoices/${e(id)}/send`),
   voidInvoice: (id: string) => send<Invoice>('POST', `/api/money/invoices/${e(id)}/void`),
   payInvoiceByAgent: (token: string, agent_id: string) => send<PaidInvoice>('POST', `/api/money/pay/${e(token)}/agent`, { agent_id }),
+  // B30.96 — the Pay screen: saved payees (Lens B30.16), payments out (B30.17), mandates (B30.19) and bulk payouts (B30.21).
+  payees: () => getJSON<{ payees: OutsidePayee[] | null }>('/api/money/payees', { payees: 'list' }),
+  createPayee: (body: PayeeRequest) => send<OutsidePayee>('POST', '/api/money/payees', body),
+  payeeChallenge: (id: string) => send<{ challenge: string; allow_credentials: string[] | null }>('POST', `/api/money/payees/${e(id)}/challenge`),
+  confirmPayee: (id: string, assertion: PasskeyAssertion) => send<OutsidePayee>('POST', `/api/money/payees/${e(id)}/confirm`, { assertion }),
+  payments: () => getJSON<{ payments: OutsidePayment[] | null }>('/api/money/payments', { payments: 'list' }),
+  payOutside: (body: OutsidePaymentRequest) => send<OutsidePayment>('POST', '/api/money/payments', body),
+  mandates: () => getJSON<{ granted: Mandate[] | null; received: Mandate[] | null }>('/api/money/mandates', { granted: 'list', received: 'list' }),
+  grantMandate: (body: MandateGrant) => send<Mandate>('POST', '/api/money/mandates', body),
+  revokeMandate: (id: string) => send<Mandate>('POST', `/api/money/mandates/${e(id)}/revoke`),
+  payouts: () => getJSON<{ payouts: PayoutBatch[] | null }>('/api/money/payouts', { payouts: 'list' }),
+  payout: (id: string) => getSaid<PayoutBatch>(`/api/money/payouts/${e(id)}`),
+  /** The CSV as the person chose it, under one Idempotency-Key: Lens parses and validates every row. */
+  uploadPayouts: async (csv: string, key: string) => {
+    const res = await fetch('/api/money/payouts', { method: 'POST', headers: { 'Content-Type': 'text/csv', Accept: 'application/json', 'Idempotency-Key': key }, body: csv })
+    if (!res.ok) {
+      let sentence = ''
+      try {
+        sentence = ((await res.json()) as { error?: string }).error ?? ''
+      } catch {
+        // a body that is not JSON carries no sentence
+      }
+      throw new AgentBankError(res.status, '/api/money/payouts', sentence)
+    }
+    return (await res.json()) as PayoutBatch
+  },
+  approvePayout: (id: string) => send<PayoutBatch>('POST', `/api/money/payouts/${e(id)}/approve`),
+}
+
+/** What a schedule asks for: a payment to another agent or a listing in µLXC, or (B30.18) a standing order to a saved outside payee. */
+export interface ScheduleRequest {
+  to_agent_id: string
+  to_listing_id: string
+  to_payee_id?: string
+  amount_ulxc: number
+  amount_minor?: number
+  currency?: string
+  memo: string
+  every: AgentSchedule['every']
+  first_run_at?: string
+  end_at?: string
+}
+
+/** Lens economy.OutsidePayee (B30.16): a saved payee outside Talyvor, with what its bank said of the name. */
+export interface OutsidePayee {
+  id: string
+  name: string
+  country: string
+  sort_code?: string
+  account_number?: string
+  iban?: string
+  bic?: string
+  routing_number?: string
+  /** exact_match, close_match (with suggested_name) or no_match */
+  check: string
+  suggested_name?: string
+  checked_by: string
+  checked_at: string
+  /** a close or no match cannot be paid until the owner confirms it with a passkey */
+  needs_confirmation: boolean
+  confirmed_at?: string
+  created_at: string
+  /** set while screening holds the payee for an operator */
+  screening?: string
+}
+
+export interface PayeeRequest {
+  name: string
+  country: string
+  sort_code?: string
+  account_number?: string
+  iban?: string
+  bic?: string
+  routing_number?: string
+}
+
+/** Lens economy.OutsidePayment (B30.17): money sent to a saved payee through the account partner. */
+export interface OutsidePayment {
+  id: string
+  account_id: string
+  agent_id?: string
+  payee_id: string
+  payee_name: string
+  amount_minor: number
+  currency: string
+  funding: string
+  reference: string
+  idempotency_key: string
+  /** pending | sent | completed | failed | returned */
+  status: string
+  detail?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface OutsidePaymentRequest {
+  account_id: string
+  payee_id: string
+  amount_minor: number
+  currency: string
+  reference: string
+  idempotency_key: string
+}
+
+/** Lens economy.MandateGrant (B30.19): on an agent's account, to a Talyvor company or an outside business with a saved payee. */
+export interface MandateGrant {
+  account_id: string
+  payee_workspace_id: string
+  payee_business_id: string
+  payee_id: string
+  payee_name: string
+  max_per_pull_minor: number
+  max_per_month_minor: number
+  expires_at: string
+}
+
+/** Lens economy.Mandate (B30.19). */
+export interface Mandate {
+  id: string
+  agent_id: string
+  account_id: string
+  currency: string
+  payee_workspace_id?: string
+  payee_business_id?: string
+  payee_name: string
+  payee_id?: string
+  max_per_pull_minor: number
+  max_per_month_minor: number
+  pulled_this_month_minor: number
+  expires_at: string
+  /** active | revoked */
+  status: string
+  revoked_at?: string
+  created_at: string
+  /** an outside business's key, answered once, when granted */
+  pull_key?: string
+}
+
+/** Lens economy.PayoutRow (B30.21): one line of a batch, valid or invalid at upload, then its payment's state. */
+export interface PayoutRow {
+  line: number
+  payee_id: string
+  payee_name?: string
+  amount_minor: number
+  currency: string
+  reference: string
+  status: string
+  payment_id?: string
+  detail?: string
+}
+
+/** Lens economy.PayoutBatch (B30.21): rows only when one batch is read. */
+export interface PayoutBatch {
+  id: string
+  agent_id?: string
+  funding: string
+  /** awaiting_approval | approved | … */
+  status: string
+  rows?: PayoutRow[] | null
+  rows_total: number
+  rows_valid: number
+  rows_invalid: number
+  totals_minor: Record<string, number> | null
+  approved_by?: string
+  approved_at?: string
+  created_at: string
 }
 
 /** Lens economy.Escrow (B22.6): credits held between a paying and a paid agent. */
@@ -1140,4 +1313,12 @@ export interface PayPage {
 /** 12345 GBP → "£123.45": minor units in the currency's own figures. */
 export function formatMinor(minor: number, currency: string): string {
   return new Intl.NumberFormat('en-GB', { style: 'currency', currency }).format(minor / 100)
+}
+
+/** "12.50" → 1250: an amount typed in the currency's major units, to the minor unit; null when it is not a positive amount. */
+export function minorOf(text: string): number | null {
+  const m = /^\s*(\d+)(?:\.(\d{1,2}))?\s*$/.exec(text)
+  if (m === null) return null
+  const minor = Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0'))
+  return Number.isSafeInteger(minor) && minor > 0 ? minor : null
 }

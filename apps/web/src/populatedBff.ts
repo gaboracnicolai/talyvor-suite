@@ -53,6 +53,29 @@ const BODIES: Record<string, unknown> = {
       { id: 'macc_agt', agent_id: 'agt_research', currency: 'GBP', purpose: 'agent', status: 'open', name: 'GBP account', balance_minor: 12000, test_minor: 12000, live_minor: 0 },
     ],
   },
+  // B30.96 — the Pay screen: saved payees, payments out, mandates and payout batches.
+  '/api/money/payees': {
+    payees: [
+      { id: 'payee_1', name: 'Acme Hosting Ltd', country: 'GB', sort_code: '04-00-04', account_number: '12345678', check: 'exact_match', checked_by: 'test', checked_at: '2026-10-10T09:00:00Z', needs_confirmation: false, created_at: '2026-10-10T09:00:00Z' },
+      { id: 'payee_2', name: 'Nord Research GmbH', country: 'DE', iban: 'DE89370400440532013000', bic: 'COBADEFFXXX', check: 'close_match', suggested_name: 'Nord Research', checked_by: 'test', checked_at: '2026-10-10T09:00:00Z', needs_confirmation: true, created_at: '2026-10-10T09:00:00Z' },
+    ],
+  },
+  '/api/money/payments': {
+    payments: [
+      { id: 'mpay_1', account_id: 'macc_agt', agent_id: 'agt_research', payee_id: 'payee_1', payee_name: 'Acme Hosting Ltd', amount_minor: 2000, currency: 'GBP', funding: 'test', reference: 'October hosting', idempotency_key: 'k1', status: 'completed', created_at: '2026-10-10T10:00:00Z', updated_at: '2026-10-10T10:00:05Z' },
+    ],
+  },
+  '/api/money/mandates': {
+    granted: [
+      { id: 'mdt_1', agent_id: 'agt_research', account_id: 'macc_agt', currency: 'GBP', payee_business_id: 'acme-hosting', payee_id: 'payee_1', payee_name: 'Acme Hosting Ltd', max_per_pull_minor: 500, max_per_month_minor: 2000, pulled_this_month_minor: 500, expires_at: '2027-10-10T23:59:59Z', status: 'active', created_at: '2026-10-10T09:00:00Z' },
+    ],
+    received: [],
+  },
+  '/api/money/payouts': {
+    payouts: [
+      { id: 'mpob_1', funding: 'test', status: 'approved', rows_total: 3, rows_valid: 2, rows_invalid: 1, totals_minor: { GBP: 1100 }, approved_by: 'owner', approved_at: '2026-10-10T11:00:00Z', created_at: '2026-10-10T10:30:00Z' },
+    ],
+  },
   '/api/money/invoices': {
     invoices: [
       {

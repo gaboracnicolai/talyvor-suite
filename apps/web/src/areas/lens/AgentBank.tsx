@@ -2032,6 +2032,7 @@ const PAYEE_KIND: Record<ApprovalPayee['kind'], string> = {
   listing: 'a marketplace listing',
   company: 'a company',
   merchant: 'a card merchant',
+  outside: 'a payee outside Talyvor',
 }
 
 const DECIDED: Record<AgentApproval['status'], { status: PillStatus; label: string }> = {

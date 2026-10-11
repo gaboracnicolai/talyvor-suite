@@ -63,6 +63,11 @@ func (a *app) agentBankRelayPath(w http.ResponseWriter, r *http.Request, t tenan
 // lensRelay is agentBankRelayPath on any bearer — "" for a Lens route that takes no credential, such as an invoice's
 // public pay page (B30.97, money_invoices.go). shown names the route in the log without its workspace or token.
 func (a *app) lensRelay(w http.ResponseWriter, r *http.Request, bearer, method, path string, body []byte, shown string) {
+	a.lensRelayTyped(w, r, bearer, method, path, body, "application/json", shown)
+}
+
+// lensRelayTyped is lensRelay with the body's own Content-Type — text/csv for a payout batch uploaded as a file (B30.96).
+func (a *app) lensRelayTyped(w http.ResponseWriter, r *http.Request, bearer, method, path string, body []byte, contentType, shown string) {
 	var rd io.Reader
 	if body != nil {
 		rd = bytes.NewReader(body)
@@ -77,7 +82,7 @@ func (a *app) lensRelay(w http.ResponseWriter, r *http.Request, bearer, method, 
 	}
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", contentType)
 	}
 	if k := r.Header.Get("Idempotency-Key"); k != "" && len(k) <= 128 {
 		req.Header.Set("Idempotency-Key", k)
@@ -870,13 +875,18 @@ func (a *app) handleAgentSchedule(w http.ResponseWriter, r *http.Request, t tena
 	if !ok {
 		return
 	}
+	// B30.96: to_payee_id is a standing order to a saved outside payee (Lens B30.18): amount_minor of currency a tick until end_at.
 	var in struct {
 		ToAgentID   string  `json:"to_agent_id"`
 		ToListingID string  `json:"to_listing_id"`
+		ToPayeeID   string  `json:"to_payee_id"`
 		AmountULXC  int64   `json:"amount_ulxc"`
+		AmountMinor int64   `json:"amount_minor"`
+		Currency    string  `json:"currency"`
 		Memo        string  `json:"memo"`
 		Every       string  `json:"every"`
 		FirstRunAt  *string `json:"first_run_at"`
+		EndAt       *string `json:"end_at"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
