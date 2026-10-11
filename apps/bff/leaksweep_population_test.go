@@ -491,9 +491,14 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	//
 	// THE HUNDRED-AND-FOURTEENTH IS B27.38'S TARE TRAINING SWITCH, /api/features/tare-training: /api/features/tare-model'S
 	// KIND, read back through GET /api/features as tare_training; it answers only what Lens recorded.
-	if len(methodOnly) > 114 {
+	//
+	// THE HUNDRED-AND-FIFTEENTH TO HUNDRED-AND-EIGHTEENTH ARE B30.97'S, POST only: /api/money/invoices/{id}/send and …/void
+	// relay Lens's answer — the invoice as it now reads — which is read back through GET /api/money/invoices, in the sweep's
+	// reach; /api/money/pay/{token}/agent relays an agent's payment, read back the same way; /api/public/pay/{token}/card relays
+	// the Checkout URL Lens opened for the payer and stores nothing, and the page itself is GET /api/public/pay/{token}.
+	if len(methodOnly) > 118 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 114 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 118 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

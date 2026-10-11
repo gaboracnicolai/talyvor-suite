@@ -62,6 +62,8 @@ import { OperatorTax } from './areas/lens/OperatorTax'
 import { OperatorCompliance } from './areas/lens/OperatorCompliance'
 import { VerificationScreen } from './areas/lens/Verification'
 import { CapabilityTermsScreen } from './areas/lens/CapabilityTerms'
+import { InvoicesScreen } from './areas/lens/Invoices'
+import { PayInvoicePage } from './areas/pay/PayInvoice'
 import { OperatorWorkspaces } from './areas/lens/OperatorWorkspaces'
 import { Landing } from './areas/marketing/Landing'
 import { Pricing } from './areas/marketing/Pricing'
@@ -118,6 +120,7 @@ const GROUP_PATHS: Record<string, readonly string[]> = {
   Work: ['/track', '/docs'],
   Developers: ['/setup', '/keys', '/spend', '/features'],
   Billing: ['/billing', '/plans', '/overview', '/ledger', '/pricing'],
+  Money: ['/money'],
   Settings: ['/settings', '/members'],
   Operator: ['/operator'],
 }
@@ -271,6 +274,8 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   { path: '/settings/verification', title: 'Verification', element: <VerificationScreen /> },
   // B30.103 — each money capability's terms, read and accepted before its first use.
   { path: '/settings/terms', title: 'Capability terms', element: <CapabilityTermsScreen /> },
+  // B30.97 — invoices from an agent's currency account, each with its public pay link.
+  { path: '/money/invoices', title: 'Invoices', element: <InvoicesScreen /> },
   // B8.2 — every capability, what it does and costs, whether it is on, and its switch.
   { path: '/features', title: 'Features', element: <Features /> },
   // B11.3 — run Tare or document conversion on your own input: no model call, no charge.
@@ -493,6 +498,10 @@ function Sidebar() {
         {/* The public price list (B5.2). It opens outside the console, as a buyer sees it. */}
         {item('/pricing', 'Pricing', 'price')}
       </Group>
+      {/* B30.97 — the first Money item; B30.105 fills the group in. */}
+      <Group label="Money" {...fold.group('Money')}>
+        {item('/money/invoices', 'Invoices', 'receipt')}
+      </Group>
       <Group label="Settings" {...fold.group('Settings')}>
         {item('/settings', 'Settings', 'settings')}
         {item('/members', 'Members', 'members')}
@@ -711,6 +720,9 @@ export function App() {
           {/* B28.127 — a chat its person shared as a link, read by anyone holding it until it is turned off.
               Outside the gate for the same reason. Read-only — see areas/share/SharedChat.tsx. */}
           <Route path="/share/:token" element={<SharedChat />} />
+          {/* B30.97 — an invoice's pay page, opened by whoever holds its link. Outside the gate: the payer has no
+              account here. See areas/pay/PayInvoice.tsx. */}
+          <Route path="/pay/:token" element={<PayInvoicePage />} />
           {/* B28.447 — a Docs page its admin shared as a link, read by anyone holding it. Outside the gate for the same
               reason. Read-only — see areas/share/SharedDocsPage.tsx. */}
           <Route path="/docs/s/:token" element={<SharedDocsPage />} />

@@ -34,6 +34,37 @@
 /** A body per endpoint. Keys are matched by exact URL first, then by pathname. */
 const BODIES: Record<string, unknown> = {
   // B27.30 — a published board, at the address the public-route sweeps visit (`/board/:token`).
+  // B30.97 — an invoice's pay page, at the address the public-route sweeps visit (`/pay/:token`).
+  '/api/public/pay/%3Atoken': {
+    notice: 'Preview — test money only. Nothing paid here moves real money.',
+    card: true,
+    transfer: { details: { holder: 'Fixture Ltd', currency: 'GBP', sort_code: '040004', account_number: '12345678' }, mode: 'TEST', reference: 'TLV-AGT-1 a1b2c3d4e5f6' },
+    invoice: {
+      id: 'inv_1', issuer: 'Fixture Ltd', number: 'INV-000001', reference: 'a1b2c3d4e5f6', currency: 'GBP', customer_name: 'Acme Hosting',
+      lines: [{ description: 'Research, October', quantity: 2, unit_amount_minor: 5000, vat_rate_bps: 2000, net_minor: 10000, vat_minor: 2000 }],
+      subtotal_minor: 10000, vat_minor: 2000, total_minor: 12000, paid_minor: 0, due_minor: 12000, due_date: '2026-11-10', remind_days_before: 3,
+      status: 'sent', sent_at: '2026-10-10T09:00:00Z', created_at: '2026-10-10T09:00:00Z',
+    },
+  },
+  // B30.97 — the Invoices screen: the workspace's currency accounts and the invoices its agents issued.
+  '/api/money/accounts': {
+    accounts: [
+      { id: 'macc_co', agent_id: '', currency: 'GBP', purpose: 'company', status: 'open', name: 'GBP account', balance_minor: 50000, test_minor: 50000, live_minor: 0 },
+      { id: 'macc_agt', agent_id: 'agt_research', currency: 'GBP', purpose: 'agent', status: 'open', name: 'GBP account', balance_minor: 12000, test_minor: 12000, live_minor: 0 },
+    ],
+  },
+  '/api/money/invoices': {
+    invoices: [
+      {
+        id: 'inv_1', agent_id: 'agt_research', account_id: 'macc_agt', issuer: 'Fixture Ltd', number: 'INV-000001', reference: 'a1b2c3d4e5f6',
+        pay_url: 'https://app.talyvor.com/pay/0123456789abcdef0123456789abcdef0123456789abcdef', currency: 'GBP', customer_name: 'Acme Hosting',
+        lines: [{ description: 'Research, October', quantity: 2, unit_amount_minor: 5000, vat_rate_bps: 2000, net_minor: 10000, vat_minor: 2000 }],
+        subtotal_minor: 10000, vat_minor: 2000, total_minor: 12000, paid_minor: 12000, due_minor: 0, due_date: '2026-11-10', remind_days_before: 3,
+        status: 'paid', sent_at: '2026-10-10T09:00:00Z', paid_at: '2026-10-11T09:00:00Z', created_at: '2026-10-10T09:00:00Z',
+        payments: [{ entry_id: 'mentry_1', method: 'card', amount_minor: 12000, paid_at: '2026-10-11T09:00:00Z' }],
+      },
+    ],
+  },
   '/api/public/boards/%3Atoken': {
     workspace: 'Fixture workspace',
     issues: [

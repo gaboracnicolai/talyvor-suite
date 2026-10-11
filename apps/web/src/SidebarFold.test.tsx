@@ -9,7 +9,7 @@ import { openEveryGroup } from './sidebarTestKit'
 // <App />: the titles are the buttons a person presses, and what is asserted is which links exist.
 
 // B28.7 — the wallet's own rows (Home, Approvals, Agent Wallets, Statements, Chat) never fold; these do.
-const TITLES = ['Marketplace', 'Work', 'Developers', 'Billing', 'Settings']
+const TITLES = ['Marketplace', 'Work', 'Developers', 'Billing', 'Money', 'Settings']
 
 function mockBff() {
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {})

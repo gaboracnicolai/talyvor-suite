@@ -14,6 +14,10 @@
 // page anyone with the link reads (GET /v1/pay/{token}) and another agent paying it from its account in the currency (POST
 // /v1/pay/{token}/agent), which moves test money from the payer's account into the issuer's. Its defect:
 //   invoice-paid-unmoved   — an agent's payment marks the invoice paid without asking what the payer holds or moving money
+// B30.97 adds the pay page's card (POST /v1/pay/{token}/card: a checkout URL, served here as /stub-invoice-checkout/{token} with
+// Stripe's field ids; the 4242 card posts what is due into the issuer's account and sends the browser back to the pay link with
+// ?paid=card), and POST /v1/money/invoices/{id}/send and …/void. Its defect:
+//   invoice-card-unposted  — a card payment marks the invoice paid and credits the issuer's account nothing
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createHash, createPublicKey, randomBytes, randomUUID, verify } from 'node:crypto'
@@ -61,11 +65,20 @@ export class PayeeDesk {
   /** The workspace's registered passkeys, each with its SPKI, base64url. */
   private readonly passkeys: (ws: string) => { credential_id: string; public_key: string }[]
 
-  constructor(json: PayeeDesk['json'], body: PayeeDesk['body'], broken: PayeeDesk['broken'], passkeys: PayeeDesk['passkeys']) {
+  /** B30.97 — the raw request body (the checkout's form), the stub's own address and the app's, where a pay link points. */
+  private readonly read: (req: IncomingMessage) => Promise<string>
+  private readonly base: string
+  private readonly appURL: string
+
+  constructor(json: PayeeDesk['json'], body: PayeeDesk['body'], broken: PayeeDesk['broken'], passkeys: PayeeDesk['passkeys'],
+    where: { read: PayeeDesk['read']; base: string; appURL: string }) {
     this.json = json
     this.body = body
     this.broken = broken
     this.passkeys = passkeys
+    this.read = where.read
+    this.base = where.base
+    this.appURL = where.appURL
   }
 
   /** B30.109 — the compliance cases in `status` (every one for ''), newest first, as GET /v1/admin/screening lists them. */
@@ -232,11 +245,22 @@ export class PayeeDesk {
       const token = randomBytes(24).toString('hex')
       const inv: StubInvoice = { id: `inv_${randomUUID()}`, workspace_id: ws, agent_id: account.agent_id ?? '', account_id: account.id, issuer: `${ws} Ltd`,
         number: `INV-${String(this.invoices.filter((i) => i.workspace_id === ws).length + 1).padStart(6, '0')}`, reference: randomBytes(6).toString('hex'),
-        pay_token: token, pay_url: `http://127.0.0.1/pay/${token}`, currency: account.currency, customer_name: b.customer_name ?? '', customer_email: b.customer_email, lines,
+        pay_token: token, pay_url: `${this.appURL}/pay/${token}`, currency: account.currency, customer_name: b.customer_name ?? '', customer_email: b.customer_email, lines,
         subtotal_minor: subtotal, vat_minor: vat, total_minor: subtotal + vat, paid_minor: 0, due_minor: subtotal + vat, due_date: b.due_date ?? '', remind_days_before: 0,
         status: b.send ? 'sent' : 'draft', ...(b.send ? { sent_at: now } : {}), created_at: now, payments: [] }
       this.invoices.push(inv)
       return this.json(res, 201, this.invoice(inv)), true
+    }
+    // B30.97 — a draft is sent (its pay link opens); a draft or sent one is voided.
+    const move = /^\/v1\/money\/invoices\/([^/]+)\/(send|void)$/.exec(path)
+    if (move !== null && req.method === 'POST') {
+      const inv = this.invoices.find((i) => i.id === move[1] && i.workspace_id === ws)
+      if (inv === undefined) return this.json(res, 404, { error: 'economy: no such invoice' }), true
+      const now = new Date().toISOString()
+      if (move[2] === 'send' && inv.status !== 'draft') return this.json(res, 409, { error: `economy: the invoice's state does not allow this: it is ${inv.status}` }), true
+      if (move[2] === 'void' && (inv.status === 'paid' || inv.status === 'void')) return this.json(res, 409, { error: `economy: the invoice's state does not allow this: it is ${inv.status}` }), true
+      Object.assign(inv, move[2] === 'send' ? { status: 'sent', sent_at: now } : { status: 'void', voided_at: now })
+      return this.json(res, 200, this.invoice(inv)), true
     }
     const pay = /^\/v1\/pay\/([^/]+)\/agent$/.exec(path)
     if (pay === null || req.method !== 'POST') return false
@@ -268,19 +292,66 @@ export class PayeeDesk {
     return this.json(res, 200, { invoice: this.invoice(inv), entry }), true
   }
 
-  /** B30.20 — the pay page behind an invoice's link, read with no credential: the invoice without the issuer's ids, how to pay it. */
-  payPage(req: IncomingMessage, res: ServerResponse, path: string): boolean {
+  /** B30.20 — the pay page behind an invoice's link, read with no credential: the invoice without the issuer's ids, how to pay it.
+   *  B30.97 — its card button (a checkout URL) and the stub's own checkout page, which pays what is due with the 4242 card. */
+  async payPage(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
     const m = /^\/v1\/pay\/([^/]+)$/.exec(path)
-    if (m === null || req.method !== 'GET') return false
-    const inv = this.invoices.find((i) => i.pay_token === m[1] && i.status !== 'draft')
-    if (inv === undefined) return this.json(res, 404, { error: 'economy: no such invoice' }), true
-    const { workspace_id: _w, agent_id: _a, account_id: _c, pay_token: _t, payments: _p, ...shown } = inv
-    const page: Record<string, unknown> = { notice: PAY_NOTICE, card: false, invoice: shown }
-    const account = (this.accounts.get(inv.workspace_id) ?? []).find((a) => a.id === inv.account_id)
-    if (account !== undefined && (inv.status === 'sent' || inv.status === 'overdue')) {
-      const d = this.details(inv.workspace_id, account)
-      page.transfer = { details: d, mode: 'TEST', reference: `${d.payment_reference ?? ''} ${inv.reference}` }
+    if (m !== null && req.method === 'GET') {
+      const inv = this.invoices.find((i) => i.pay_token === m[1] && i.status !== 'draft')
+      if (inv === undefined) return this.json(res, 404, { error: 'economy: no such invoice' }), true
+      const { workspace_id: _w, agent_id: _a, account_id: _c, pay_token: _t, payments: _p, ...shown } = inv
+      const payable = inv.status === 'sent' || inv.status === 'overdue'
+      const page: Record<string, unknown> = { notice: PAY_NOTICE, card: payable, invoice: shown }
+      const account = (this.accounts.get(inv.workspace_id) ?? []).find((a) => a.id === inv.account_id)
+      if (account !== undefined && payable) {
+        const d = this.details(inv.workspace_id, account)
+        page.transfer = { details: d, mode: 'TEST', reference: `${d.payment_reference ?? ''} ${inv.reference}` }
+      }
+      return this.json(res, 200, page), true
     }
-    return this.json(res, 200, page), true
+    const card = /^\/v1\/pay\/([^/]+)\/card$/.exec(path)
+    if (card !== null && req.method === 'POST') {
+      const inv = this.invoices.find((i) => i.pay_token === card[1] && i.status !== 'draft')
+      if (inv === undefined) return this.json(res, 404, { error: 'economy: no such invoice' }), true
+      if ((inv.status !== 'sent' && inv.status !== 'overdue') || inv.due_minor <= 0) return this.json(res, 409, { error: `the invoice is ${inv.status}: nothing is due on it` }), true
+      return this.json(res, 201, { url: `${this.base}/stub-invoice-checkout/${inv.pay_token}` }), true
+    }
+    const checkout = /^\/stub-invoice-checkout\/([^/]+)$/.exec(path)
+    if (checkout === null) return false
+    const inv = this.invoices.find((i) => i.pay_token === checkout[1])
+    if (inv === undefined) return this.json(res, 404, { error: 'no such checkout' }), true
+    if (req.method !== 'POST') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+      res.end(`<!doctype html><html><head><title>Stub checkout</title></head><body><form method="post">
+<h1>Pay invoice ${inv.number}</h1>
+<label>Email <input id="email" name="email"></label>
+<label>Card number <input id="cardNumber" name="card"></label>
+<label>Expiry <input id="cardExpiry" name="expiry"></label>
+<label>CVC <input id="cardCvc" name="cvc"></label>
+<label>Name on card <input id="billingName" name="name"></label>
+<button type="submit" data-testid="hosted-payment-submit-button">Pay</button>
+</form></body></html>`)
+      return true
+    }
+    const form = new URLSearchParams(await this.read(req))
+    if ((form.get('card') ?? '').replace(/\s/g, '') !== '4242424242424242') {
+      res.writeHead(402, { 'Content-Type': 'text/html; charset=utf-8' })
+      res.end('<!doctype html><p>Your card was declined.</p>')
+      return true
+    }
+    if (inv.status === 'sent' || inv.status === 'overdue') {
+      const now = new Date().toISOString()
+      const to = (this.accounts.get(inv.workspace_id) ?? []).find((a) => a.id === inv.account_id)
+      // STUB_BREAK=invoice-card-unposted — the invoice reads paid and the issuer's account is credited nothing.
+      if (to !== undefined && !this.broken('invoice-card-unposted')) {
+        to.test_minor += inv.due_minor
+        to.balance_minor += inv.due_minor
+      }
+      inv.payments.push({ entry_id: `me_${randomUUID()}`, method: 'card', amount_minor: inv.due_minor, paid_at: now })
+      Object.assign(inv, { paid_minor: inv.total_minor, due_minor: 0, status: 'paid', paid_at: now })
+    }
+    res.writeHead(303, { Location: `${inv.pay_url}?paid=card` })
+    res.end()
+    return true
   }
 }

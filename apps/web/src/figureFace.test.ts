@@ -187,6 +187,9 @@ const FORMATTERS: Record<string, true | string> = {
   // B19.4. An agent's balance, spend, payments and statement lines on /agents, in µLXC with every
   // µLXC shown: each renders inside a font-figure span or cell.
   'apps/web/src/areas/lens/agentBankApi.ts#formatULXC': true,
+  // B30.97. An invoice's amounts in its currency (`£120.00`), from Lens's minor units: each renders inside a font-figure
+  // span or cell on the Invoices screen and the pay page.
+  'apps/web/src/areas/lens/agentBankApi.ts#formatMinor': true,
   // B32.57. An offer's price in the buyer's currency on the listing page (`£18.55`), from Lens's minor units: it
   // renders inside a font-figure span.
   'apps/web/src/areas/marketplace/marketApi.ts#formatDisplay': true,

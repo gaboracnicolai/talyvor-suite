@@ -89,6 +89,7 @@ var builtByThisService = map[string]string{
 // suspicious and checking them would report the decoder as a defect.
 var decodedFromUpstream = map[string]string{
 	"mcpReply":               "Lens's POST /mcp JSON-RPC reply, decoded in mcpCall() (B28.349)",
+	"invoiceLine":            "one line of an invoice, decoded from the screen's POST and re-encoded wholesale in handleMoneyInvoices (B30.97)",
 	"connectorBody":          "the browser's body naming a connector, its token and a tool call, decoded wholesale in readConnectorBody (B28.122)",
 	"chatPrompt":             "one named prompt, decoded from Lens's GET /v1/prompts list or POST /v1/prompts reply in handleChatPrompts (B28.370)",
 	"uploadedDocument":       "one document uploaded in Chat, decoded from Lens's GET /v1/documents list in handleDocumentList (B28.380)",

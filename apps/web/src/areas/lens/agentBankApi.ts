@@ -657,6 +657,14 @@ export const agentBankApi = {
   cashOuts: () => getJSON<{ cash_outs: CashOut[] | null }>('/api/wallets/cash-outs', { cash_outs: 'list' }),
   requestCashOut: (id: string, amount_ulxc: number, destination: string) =>
     send<CashOut>('POST', `/api/agents/${e(id)}/cash-outs`, { amount_ulxc, destination }),
+  // B30.97 — invoices from an agent's currency account and their pay page (Lens B30.20), and the accounts they are paid into (B30.13).
+  moneyAccounts: () => getJSON<{ accounts: CurrencyAccount[] | null }>('/api/money/accounts', { accounts: 'list' }),
+  openMoneyAccount: (currency: string, agent_id: string) => send<CurrencyAccount>('POST', '/api/money/accounts', { currency, agent_id }),
+  invoices: () => getJSON<{ invoices: Invoice[] | null }>('/api/money/invoices', { invoices: 'list' }),
+  createInvoice: (body: InvoiceRequest) => send<Invoice>('POST', '/api/money/invoices', body),
+  sendInvoice: (id: string) => send<Invoice>('POST', `/api/money/invoices/${e(id)}/send`),
+  voidInvoice: (id: string) => send<Invoice>('POST', `/api/money/invoices/${e(id)}/void`),
+  payInvoiceByAgent: (token: string, agent_id: string) => send<PaidInvoice>('POST', `/api/money/pay/${e(token)}/agent`, { agent_id }),
 }
 
 /** Lens economy.Escrow (B22.6): credits held between a paying and a paid agent. */
@@ -1032,4 +1040,104 @@ export function refusalText(err: unknown): string {
     return `${s.charAt(0).toUpperCase()}${s.slice(1)}${s.endsWith('.') ? '' : '.'}`
   }
   return 'Nothing changed. You can try again.'
+}
+
+/** Lens economy.CurrencyAccount (B30.13): the company's or an agent's account in GBP, EUR, USD or USDC. */
+export interface CurrencyAccount {
+  id: string
+  /** "" for the company's own */
+  agent_id?: string
+  currency: string
+  purpose: 'company' | 'agent'
+  status: string
+  name: string
+  balance_minor: number
+  test_minor: number
+  live_minor: number
+}
+
+/** One line of an invoice (Lens economy.InvoiceLine): a quantity at a unit price in minor units, with its VAT rate in basis points. */
+export interface InvoiceLine {
+  description: string
+  quantity: number
+  unit_amount_minor: number
+  vat_rate_bps: number
+  net_minor?: number
+  vat_minor?: number
+}
+
+/** What issues an invoice (Lens economy.InvoiceRequest, B30.20); the account names the currency. */
+export interface InvoiceRequest {
+  account_id: string
+  customer_name: string
+  customer_email: string
+  customer_address: string
+  customer_vat_number: string
+  seller_vat_number: string
+  lines: InvoiceLine[]
+  /** YYYY-MM-DD */
+  due_date: string
+  remind_days_before: number
+  memo: string
+  /** sent at once, its pay link open, rather than kept as a draft */
+  send: boolean
+}
+
+/** Lens economy.Invoice (B30.20). Its ids and pay token are absent from the payer's view (PayPage). */
+export interface Invoice {
+  id: string
+  agent_id?: string
+  account_id?: string
+  issuer: string
+  /** INV-000001, the workspace's own */
+  number: string
+  /** quoted with a transfer, it marks the invoice paid */
+  reference: string
+  pay_url?: string
+  currency: string
+  customer_name: string
+  customer_email?: string
+  customer_address?: string
+  customer_vat_number?: string
+  seller_vat_number?: string
+  lines: InvoiceLine[]
+  subtotal_minor: number
+  vat_minor: number
+  total_minor: number
+  paid_minor: number
+  due_minor: number
+  due_date: string
+  remind_days_before: number
+  memo?: string
+  status: 'draft' | 'sent' | 'overdue' | 'paid' | 'void'
+  sent_at?: string
+  paid_at?: string
+  voided_at?: string
+  created_at: string
+  payments?: { entry_id: string; method: 'card' | 'transfer' | 'agent'; amount_minor: number; paid_at: string }[] | null
+  reminders?: { kind: string; sent_to?: string; message: string; sent_at: string }[] | null
+}
+
+/** What a Talyvor agent's payment of an invoice did (Lens economy.PaidInvoice): the invoice as it now reads, and the entry. */
+export interface PaidInvoice {
+  invoice: Invoice
+  entry: { id: string }
+}
+
+/** The pay page as Lens serves it to whoever holds the link (GET /v1/pay/{token}, B30.20). */
+export interface PayPage {
+  notice: string
+  invoice: Invoice
+  /** a card may pay what is due (Lens has a Stripe test-mode key and the invoice is sent or overdue) */
+  card: boolean
+  transfer?: {
+    details: { holder: string; currency: string; sort_code?: string; account_number?: string; iban?: string; bic?: string; routing_number?: string }
+    mode: string
+    reference: string
+  }
+}
+
+/** 12345 GBP → "£123.45": minor units in the currency's own figures. */
+export function formatMinor(minor: number, currency: string): string {
+  return new Intl.NumberFormat('en-GB', { style: 'currency', currency }).format(minor / 100)
 }

@@ -57,6 +57,12 @@ func (a *app) agentBankRelay(w http.ResponseWriter, r *http.Request, t tenant, m
 // agentBankRelayPath is agentBankRelay for any Lens path, still with the session's own token (B22.10:
 // /v1/wallets/… is not under the workspace).
 func (a *app) agentBankRelayPath(w http.ResponseWriter, r *http.Request, t tenant, method, path string, body []byte) {
+	a.lensRelay(w, r, t.token, method, path, body, strings.TrimPrefix(path, lensWorkspacePath(t, "")))
+}
+
+// lensRelay is agentBankRelayPath on any bearer — "" for a Lens route that takes no credential, such as an invoice's
+// public pay page (B30.97, money_invoices.go). shown names the route in the log without its workspace or token.
+func (a *app) lensRelay(w http.ResponseWriter, r *http.Request, bearer, method, path string, body []byte, shown string) {
 	var rd io.Reader
 	if body != nil {
 		rd = bytes.NewReader(body)
@@ -66,7 +72,9 @@ func (a *app) agentBankRelayPath(w http.ResponseWriter, r *http.Request, t tenan
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream request"})
 		return
 	}
-	req.Header.Set("Authorization", "Bearer "+t.token) // the SESSION's workspace token, server-side only
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer) // the SESSION's workspace token, server-side only
+	}
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -76,7 +84,7 @@ func (a *app) agentBankRelayPath(w http.ResponseWriter, r *http.Request, t tenan
 	}
 	resp, err := a.client.Do(req)
 	if err != nil {
-		log.Printf("bff: agent bank %s %s: %v", method, strings.TrimPrefix(path, lensWorkspacePath(t, "")), err)
+		log.Printf("bff: agent bank %s %s: %v", method, shown, err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream unreachable"})
 		return
 	}
