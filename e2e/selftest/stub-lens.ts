@@ -1272,6 +1272,8 @@ createServer(async (req, res) => {
 
     // B30.118 — the Know Your Agent keys, revocation list and verify, which any platform calls with no credential.
     if (await bank.kyaPublic(req, res, p)) return
+    // B30.130 — an invoice's pay page, read with no credential (stub-payees.ts).
+    if (bank.invoicePayPage(req, res, p)) return
     // B32.81 — the market_* MCP tools on an agent's own key.
     if (await bank.agentMCP(req, res, bearer, p)) return
     if (await bank.agentPay(req, res, bearer, p)) return

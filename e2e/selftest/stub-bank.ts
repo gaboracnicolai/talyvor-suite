@@ -682,6 +682,11 @@ export class Bank {
   }
 
   /** B30.118 — the Know Your Agent routes anyone may call: the published keys, the revocation list and verify (stub-kya.ts). */
+  /** B30.130 — the pay page behind an invoice's link, which anyone with the link reads (stub-payees.ts). */
+  invoicePayPage(req: IncomingMessage, res: ServerResponse, path: string): boolean {
+    return this.payees.payPage(req, res, path)
+  }
+
   async kyaPublic(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
     return this.kya.route(req, res, path)
   }

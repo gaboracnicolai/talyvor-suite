@@ -69,6 +69,7 @@ import { marketBuyerCurrency } from './buyerCurrency.ts'
 import { marketReceipts } from './receipts.ts'
 import { verificationLevels } from './verification.ts'
 import { compliance } from './compliance.ts'
+import { invoicePayLink } from './invoices.ts'
 import { outsidePayees } from './payees.ts'
 import { capabilityTerms } from './capabilityTerms.ts'
 import { verificationScreen } from './verificationScreen.ts'
@@ -5194,6 +5195,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // TESTPENDING payee saved held on its case and a payment to it refused 403 naming it; a live payment and a live account refused,
   // the account naming its class; the GBP account still at zero, no EUR account, no payment row; both cases on the operator's view.
   if (i === 4) list.push(compliance())
+  // B30.130 — invoices and pay links, once a run, on two workspaces of its own: an agent issues and sends a GBP invoice with VAT; its
+  // pay page reads with no credential, test money only, quoting the agent's payment reference and naming no issuer id; another
+  // company's unfunded agent is refused 409 through the link and nothing moves.
+  if (i === 5) list.push(invoicePayLink())
   // B30.116 — the Verification screen, once a run, in the browser on a workspace of its own: L1 then L2 from its forms on
   // the Test provider, then L2 shown with the live level L0, both checks marked Test, payments_out at L2 and b2b_credit at L3.
   if (i === 7) list.push(verificationScreen())
